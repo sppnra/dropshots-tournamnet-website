@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+test-results/
+*-deploy.zip
+dist/
+.verification/
+.netlify/
+.env
+.env.*
+!.env.example
