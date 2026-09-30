@@ -9,7 +9,7 @@ required = [
     "index.html", "register.html", "app.js", "register.js", "registration-admin.js",
     "api.js", "config.js", "identity-client.js", "styles.css", "package.json",
     "package-lock.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "netlify.toml",
-    ".gitignore", "README.md", "ARCHITECTURE.md",
+    ".gitignore", ".env.example", "README.md", "ARCHITECTURE.md",
 ]
 folders = ["scripts", "netlify", "server", "tests"]
 files = [root / name for name in required]

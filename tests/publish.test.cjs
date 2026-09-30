@@ -1,0 +1,26 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');
+test('organizer publish commits exact IDs and settings, then anonymous public read succeeds',async t=>{
+  const {PGlite}=await import('@electric-sql/pglite');const {createPGlitePool}=await import('./pglite-pool.mjs');
+  const {RegistrationService}=await import('../server/registration-service.mjs');const {createApiHandler}=await import('../server/api-handler.mjs');
+  const db=new PGlite();t.after(()=>db.close());for(const file of fs.readdirSync(path.join(__dirname,'../netlify/database/migrations')).filter(f=>f.endsWith('.sql')).sort())await db.exec(fs.readFileSync(path.join(__dirname,'../netlify/database/migrations',file),'utf8'));
+  const pool=createPGlitePool(db),service=new RegistrationService(pool);
+  const admin=createApiHandler({service,getUser:async()=>({id:'organizer',roles:['organizer']})});
+  const publicApi=createApiHandler({service,getUser:async()=>null});
+  const body={id:'t_local_exact',name:'Published Draft',date:'2020-01-01',venue:'Test Venue',status:'draft',revision:0,events:[{id:'e_local_exact',name:'Open Doubles',type:'doubles',format:'knockout',registration:{enabled:true,capacity:1,closeDate:null,allowPartnerNeeded:true,autoWaitlist:true}}]};
+  const publish=()=>admin(new Request('http://localhost/api/admin/catalogue',{method:'POST',headers:{origin:'http://localhost','content-type':'application/json'},body:JSON.stringify(body)}));
+  let response=await publish();assert.equal(response.status,200);let result=await response.json();assert.equal(result.id,body.id);assert.equal(result.diagnostic.reason,'open');
+  const rows=await service.diagnostics(body.id);assert.deepEqual(rows.tournament,{id:body.id,name:body.name,event_date:body.date,venue:body.venue,published:true,revision:1});
+  const e=rows.events[0];for(const [key,value] of Object.entries({id:'e_local_exact',tournament_id:body.id,name:'Open Doubles',event_type:'doubles',registration_enabled:true,capacity:1,registration_close:null,allow_partner_needed:true,auto_waitlist:true}))assert.equal(e[key],value,key);
+  response=await publicApi(new Request('http://localhost/api/tournaments?tournament='+body.id));const catalogue=await response.json();assert.equal(catalogue.tournaments[0].id,body.id);assert.equal(catalogue.tournaments[0].events[0].id,e.id);
+  await pool.query('update tournaments set published=false where id=$1',[body.id]);body.revision=1;response=await publish();assert.equal(response.status,200);assert.equal((await service.catalogue(false,body.id)).tournaments.length,1,'republish restores visibility');
+  await pool.query("insert into players(id,tournament_id,name,email,phone) values('00000000-0000-4000-8000-000000000001',$1,'Test','private@example.test','07123456789')",[body.id]);
+  await pool.query("insert into event_entries(id,event_id,player_id,active) values('en_full',$1,'00000000-0000-4000-8000-000000000001',true)",[e.id]);
+  assert.equal((await service.catalogue(false,body.id)).tournaments[0].events[0].confirmed_count,1,'full waitlisted event remains visible');
+  const {randomUUID}=require('node:crypto');assert.equal((await service.submit({tournamentId:body.id,eventId:e.id,requestKey:randomUUID(),needsPartner:false,consent:true,player1:{name:'One',email:'one@example.test',phone:'07123456780'},player2:{name:'Two',email:'two@example.test',phone:'07123456781'}})).registration.status,'waitlisted');
+  let diagnostic=await admin(new Request('http://localhost/api/admin/catalogue-diagnostic?tournament='+body.id));assert.equal(diagnostic.status,200);assert.ok(!(await diagnostic.text()).includes('private@example.test'));
+  assert.equal((await publicApi(new Request('http://localhost/api/admin/catalogue-diagnostic?tournament='+body.id))).status,401);
+  body.revision=2;body.events[0].registration.closeDate='2020-01-01';response=await publish();result=await response.json();assert.equal(result.diagnostic.events[0].reason,'closing_date_passed');assert.equal((await service.catalogue(false,body.id)).tournaments.length,0);
+  body.revision=3;body.events[0].registration.closeDate=null;body.events[0].registration.enabled=false;await publish();assert.equal((await service.diagnostics(body.id)).events[0].reason,'registration_disabled');
+  assert.equal((await service.diagnostics('t_missing')).reason,'tournament_not_found');
+});

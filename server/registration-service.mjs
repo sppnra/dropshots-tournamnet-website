@@ -1,25 +1,39 @@
 import {randomUUID} from 'node:crypto';
 import {transaction} from './db.mjs';
+import {PaymentService} from './payments.mjs';
 import {check,id,uuid,registrationInput,catalogueInput,HttpError} from './validation.mjs';
 const dateExpr="(now() at time zone 'Europe/London')::date";
 const publicEventColumns=`e.id,e.tournament_id,e.name,e.event_type,e.capacity,e.registration_enabled,e.registration_close::text,e.allow_partner_needed,e.auto_waitlist,
   (select count(*)::integer from event_entries en where en.event_id=e.id and en.active) as confirmed_count`;
 const registrationColumns=`r.id,r.tournament_id,r.event_id,r.status,r.needs_partner,r.entry_id as local_entry_id,r.created_at,
+  pay.id as payment_id,coalesce(pay.payment_status,'not_required') as payment_status,pay.payment_reference,coalesce(pay.payment_amount,0) as payment_amount,
+  pay.approved_at,pay.approval_email_sent_at,pay.payment_received_at,pay.payment_received_by,pay.payment_email_sent_at,
+  coalesce((select case when bool_and(o.status='sent') then 'sent' when bool_or(o.status='uncertain') then 'uncertain' when bool_or(o.status='failed') then 'failed' else 'sending' end from payment_email_outbox o where o.payment_id=pay.id and o.kind='approval'),'not_sent') as approval_email_status,
+  coalesce((select case when bool_and(o.status='sent') then 'sent' when bool_or(o.status='uncertain') then 'uncertain' when bool_or(o.status='failed') then 'failed' else 'sending' end from payment_email_outbox o where o.payment_id=pay.id and o.kind='payment'),'not_sent') as payment_email_status,
+  e.entry_fee,e.payment_required,
   e.name as event_name,e.event_type,t.name as tournament_name,team.name as team_name,
   p.name as player1_name,p.email as player1_email,p.phone as player1_phone,
   coalesce(p2.name,member2.name) as player2_name,coalesce(p2.email,member2.email) as player2_email,coalesce(p2.phone,member2.phone) as player2_phone`;
 const registrationJoins=`from registrations r join events e on e.id=r.event_id join tournaments t on t.id=r.tournament_id
-  join players p on p.id=r.player_id left join players p2 on p2.id=r.partner_id left join teams team on team.id=r.team_id
+  left join registration_payments pay on pay.entry_id=r.entry_id join players p on p.id=r.player_id left join players p2 on p2.id=r.partner_id left join teams team on team.id=r.team_id
   left join team_members tm2 on tm2.team_id=r.team_id and tm2.player_id<>r.player_id left join players member2 on member2.id=tm2.player_id`;
 
 export class RegistrationService {
-  constructor(pool){this.pool=pool;}
+  constructor(pool,email){this.pool=pool;this.payments=new PaymentService(pool,email);}
+  async diagnostics(tournamentId){
+    id(tournamentId,'tournament');
+    const tournament=(await this.pool.query("select id,name,event_date::text,venue,published,revision from tournaments where id=$1",[tournamentId])).rows[0]||null;
+    const events=(await this.pool.query(`select ${publicEventColumns},e.format,(e.registration_close is null or e.registration_close>=${dateExpr}) as in_date from events e where e.tournament_id=$1 order by e.name`,[tournamentId])).rows.map(e=>({...e,publicly_available:!!tournament?.published&&e.registration_enabled&&e.in_date,reason:!tournament?.published?'tournament_unpublished':!e.registration_enabled?'registration_disabled':!e.in_date?'closing_date_passed':'open'}));
+    const reason=!tournament?'tournament_not_found':!tournament.published?'tournament_unpublished':!events.length?'no_events':events.some(e=>e.publicly_available)?'open':'no_open_events';
+    return {requested_tournament_id:tournamentId,tournament_found:!!tournament,tournament,events,publicly_available:reason==='open',reason,closing_timezone:'Europe/London'};
+  }
   async catalogue(admin=false,tournamentId=null){
     if(tournamentId)id(tournamentId,'tournament');
     const tournaments=(await this.pool.query(`select id,name,event_date::text,venue,revision from tournaments t where ($1::text is null or id=$1)
       ${admin?'':`and published and exists(select 1 from events e where e.tournament_id=t.id and e.registration_enabled and (e.registration_close is null or e.registration_close>=${dateExpr}))`} order by event_date nulls last,name`,[tournamentId])).rows;
-    const events=(await this.pool.query(`select ${publicEventColumns},e.format from events e join tournaments t on t.id=e.tournament_id where ($1::text is null or e.tournament_id=$1)
+    const events=(await this.pool.query(`select ${publicEventColumns},e.format${admin?',e.entry_fee,e.payment_required':''} from events e join tournaments t on t.id=e.tournament_id where ($1::text is null or e.tournament_id=$1)
       ${admin?'':`and t.published and e.registration_enabled and (e.registration_close is null or e.registration_close>=${dateExpr})`} order by e.name`,[tournamentId])).rows;
+    if(!admin&&tournamentId){const d=await this.diagnostics(tournamentId);console.info('Registration public catalogue',JSON.stringify({requested_tournament_id:tournamentId,tournament_found:d.tournament_found,published:d.tournament?.published,event_rows_found:d.events.length,events:d.events.map(e=>({id:e.id,registration_enabled:e.registration_enabled,close_date_check_failed:!e.in_date,reason:e.reason})),reason:d.reason}));}
     return {tournaments:tournaments.map(t=>({...t,events:events.filter(e=>e.tournament_id===t.id)}))};
   }
   async publish(body){
@@ -29,19 +43,19 @@ export class RegistrationService {
       const old=(await c.query('select revision from tournaments where id=$1 for update',[t.id])).rows[0];
       check((old?.revision||0)===t.revision,'Registration settings changed on another device. Refresh before publishing.',409);
       const rev=(old?.revision||0)+1;
-      await c.query(`insert into tournaments(id,name,event_date,venue,revision) values($1,$2,$3,$4,$5)
-        on conflict(id) do update set name=excluded.name,event_date=excluded.event_date,venue=excluded.venue,revision=excluded.revision,updated_at=now()`,[t.id,t.name,t.date,t.venue,rev]);
+      await c.query(`insert into tournaments(id,name,event_date,venue,revision,published) values($1,$2,$3,$4,$5,true)
+        on conflict(id) do update set name=excluded.name,event_date=excluded.event_date,venue=excluded.venue,revision=excluded.revision,published=true,updated_at=now()`,[t.id,t.name,t.date,t.venue,rev]);
       for(const e of t.events){
         const existing=(await c.query('select tournament_id,event_type from events where id=$1 for update',[e.id])).rows[0];
         check(!existing||existing.tournament_id===t.id,'An event belongs to another tournament',409);
         if(existing&&existing.event_type!==e.type)check(!(await c.query('select 1 from registrations where event_id=$1 limit 1',[e.id])).rows.length,'An event with registrations cannot change between singles and doubles',409);
-        await c.query(`insert into events(id,tournament_id,name,event_type,format,capacity,registration_enabled,registration_close,allow_partner_needed,auto_waitlist)
-          values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) on conflict(id) do update set name=excluded.name,event_type=excluded.event_type,format=excluded.format,capacity=excluded.capacity,
-          registration_enabled=excluded.registration_enabled,registration_close=excluded.registration_close,allow_partner_needed=excluded.allow_partner_needed,auto_waitlist=excluded.auto_waitlist,updated_at=now()`,
-          [e.id,t.id,e.name,e.type,e.format,e.capacity,e.enabled,e.closeDate,e.type==='doubles'&&e.allowPartnerNeeded,e.autoWaitlist]);
+        await c.query(`insert into events(id,tournament_id,name,event_type,format,capacity,registration_enabled,registration_close,allow_partner_needed,auto_waitlist,entry_fee,payment_required)
+          values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) on conflict(id) do update set name=excluded.name,event_type=excluded.event_type,format=excluded.format,capacity=excluded.capacity,
+          registration_enabled=excluded.registration_enabled,registration_close=excluded.registration_close,allow_partner_needed=excluded.allow_partner_needed,auto_waitlist=excluded.auto_waitlist,entry_fee=excluded.entry_fee,payment_required=excluded.payment_required,updated_at=now()`,
+          [e.id,t.id,e.name,e.type,e.format,e.capacity,e.enabled,e.closeDate,e.type==='doubles'&&e.allowPartnerNeeded,e.autoWaitlist,e.entryFee,e.paymentRequired]);
       }
       await c.query('update events set registration_enabled=false where tournament_id=$1 and not(id=any($2::text[]))',[t.id,t.events.map(e=>e.id)]);
-      return {revision:rev};
+      return {id:t.id,revision:rev};
     });
   }
   async ensurePlayer(c,tournamentId,data){
@@ -139,23 +153,26 @@ export class RegistrationService {
     const status=body.status;
     check(['confirmed','waitlisted','rejected','withdrawn'].includes(status),'Invalid registration status');
     check(body.overrideCapacity===undefined||typeof body.overrideCapacity==='boolean','Invalid capacity override');
-    return transaction(this.pool,async c=>{
+    const result=await transaction(this.pool,async c=>{
+      let paymentId=null;
       const {e,r}=await this.lockRegistration(c,registrationId);
       if(status==='confirmed'){
         check(!r.needs_partner||r.team_id,'Pair this player before confirming');
         const entryId=await this.activate(c,e,r,body.overrideCapacity===true);
+        paymentId=await this.payments.approve(c,e,r,entryId);
         await c.query(`update registrations set status='confirmed',entry_id=$1,updated_at=now() where id=$2 or ($3::uuid is not null and team_id=$3 and event_id=$4)`,[entryId,r.id,r.team_id,e.id]);
       }else{
         if(r.entry_id)await c.query('update event_entries set active=false where id=$1',[r.entry_id]);
         await c.query(`update registrations set status=$1,updated_at=now() where id=$2 or ($3::text is not null and entry_id=$3)`,[status,r.id,r.entry_id]);
       }
-      return {ok:true};
+      return {ok:true,paymentId};
     });
+    return result.paymentId?this.payments.deliver(result.paymentId):{ok:true};
   }
   async pair(body){
     check(Array.isArray(body.ids)&&body.ids.length===2&&body.ids[0]!==body.ids[1],'Select two different players');
     const ids=body.ids.map(v=>uuid(v,'registration'));
-    return transaction(this.pool,async c=>{
+    const result=await transaction(this.pool,async c=>{
       const {e,r}=await this.lockRegistration(c,ids[0]);
       const b=(await c.query('select * from registrations where id=$1 and event_id=$2 for update',[ids[1],e.id])).rows[0];
       check(b&&b.event_id===e.id&&e.event_type==='doubles','Players must be in the same doubles event');
@@ -167,9 +184,11 @@ export class RegistrationService {
       const p1=players.find(p=>p.id===r.player_id),p2=players.find(p=>p.id===b.player_id);
       const teamId=await this.makeTeam(c,e.tournament_id,'',p1,p2);
       const entryId=await this.activate(c,e,{...r,team_id:teamId});
+      const paymentId=await this.payments.approve(c,e,r,entryId);
       await c.query(`update registrations set team_id=$1,entry_id=$2,status='confirmed',updated_at=now() where id=any($3::uuid[])`,[teamId,entryId,ids]);
-      return {ok:true};
+      return {ok:true,paymentId};
     });
+    return result.paymentId?this.payments.deliver(result.paymentId):{ok:true};
   }
   async remove(registrationId){
     return transaction(this.pool,async c=>{

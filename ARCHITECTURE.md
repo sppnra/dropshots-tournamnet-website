@@ -2,7 +2,7 @@
 
 ## Scope
 
-The existing vanilla JavaScript tournament engine remains intact. This phase centralizes registration, organizer registration management and the confirmed-entry bridge. It does not migrate scoring or draws.
+The existing vanilla JavaScript tournament engine remains intact. This phase centralizes registration, organizer registration management, approval emails, manual bank-transfer tracking and the confirmed-entry bridge. It does not migrate scoring or draws.
 
 ```text
 Player phone                         Organizer browser
@@ -111,3 +111,34 @@ These checks operate on local tournament state; cross-device scorer synchronizat
 PGlite and Playwright are development dependencies only. Production Functions use Netlify Database; production organizer authentication uses Netlify Identity. The local demo authentication route is implemented only in the undeployed development server.
 
 Live database provisioning and Identity invitation/password-login verification require a configured Netlify project. The source archive does not contain account credentials or an already-provisioned database.
+
+
+Registration publish diagnostics
+--------------------------------
+Publish preserves local tournament/event IDs, explicitly marks the tournament published, commits settings, and checks the anonymous public GET before reporting registration open. A local draft status does not control public registration. New events have no closing date by default; existing explicit closing dates are preserved and expire after that day in Europe/London. Full events with automatic waitlist remain visible.
+
+In Registrations, use **Inspect published database** after signing in. It reads `GET /api/admin/catalogue-diagnostic?tournament=ID` and shows tournament metadata, persisted event settings, counts, and visibility reasons, without player contacts. The endpoint requires organizer/admin Identity roles. Function logs include IDs, row presence, enabled/closing checks and final reason. Canonical links use `/register?tournament=ID`; `/register.html?t=ID` remains supported. After updating an older deploy, inspect the closing date, clear or correct it if appropriate, and publish again.
+
+
+## Payment and email extension
+
+`202609300002_payments.sql` is additive to the deployed schema. Events get `entry_fee numeric(10,2)` in GBP and `payment_required boolean`, defaulting to zero/false. Existing confirmations are grandfathered as not_required; reconfirming them never creates a retrospective charge. Existing pending entries use the published event configuration when first approved. Registration status remains unchanged and is independent of payment status.
+
+Private `tournament_payment_settings` stores bank fields and an optimistic revision. It is never part of the public catalogue or localStorage. `registration_payments` is unique per `event_entries.id`, with stable reference, amount snapshot, approved_at, sent timestamps, received_at/by and separate payment status. Pairing two registrations creates one shared charge. The registration list left-joins these fields; pending/legacy rows default to not_required (shown as Not started for unapproved registrations). `payment_audit` preserves the first paid action and trusted Identity actor. No reversal action is implemented. Withdrawal/delete-registration retain payment, audit and email history.
+
+Approval/pairing take the existing event lock, activate an entry, create its payment snapshot, update registrations, and commit atomically. `PaymentService.deliver` runs only after commit; an email failure is returned as an organizer warning, without rollback. Paid marking also commits and writes one audit before sending the optional receipt. Payment stats count each payment once using an EXISTS confirmed registration predicate, excluding withdrawn/rejected/waitlisted entries. GBP calculations aggregate integer pennies in JavaScript, converting to displayed pounds only at the end.
+
+`payment_email_outbox` has a unique (payment_id,kind,recipient) key, private rendered HTML/text payload, attempt state/time, UUID idempotency key, acceptance timestamp and provider ID. One message per recipient keeps doubles players' addresses private. Content/reference/amount is fixed at queueing. Missing bank details prevent queueing an approval email but never undo approval; fixing settings and retrying creates the first valid content. Retrying an already queued message uses its original bank snapshot. Once paid, use a receipt rather than sending old pending-payment instructions.
+
+A short row-lock transaction claims an outbox message; the HTTP call occurs outside the transaction. Concurrent callers skip a live 45-second claim. Network calls time out at six seconds. Definitive failures can retry; uncertain/crashed attempts reuse the same provider key only within a conservative 14-minute window. After that, automatic resend is blocked and the organizer checks Brevo logs. The outbox is durable but not a background scheduler; retries are explicit organizer actions. Sent timestamps mean provider acceptance; bounces/inbox delivery are outside this phase.
+
+The provider abstraction is `server/email.mjs`, rendering is `server/email-templates.mjs`, orchestration is `server/payments.mjs`. Default production sender is Brevo's free transactional HTTP API with server-only EMAIL_API_KEY, EMAIL_FROM and optional EMAIL_REPLY_TO. No provider SDK, payment gateway or additional database is added. The local demo and tests inject a fake sender and never contact real mailboxes.
+
+New organizer routes, protected by the existing Identity roles, Origin check and JSON validation:
+
+- GET/POST `/api/admin/payment-settings` (GET takes tournament; POST takes tournamentId, revision and bank fields).
+- GET `/api/admin/payment-stats?tournament=ID`.
+- POST `/api/admin/registrations/UUID/payment` with `{sendEmail:boolean}`; actor comes from Identity, never the request body.
+- POST `/api/admin/registrations/UUID/retry-email` with `{kind:'approval'|'payment'}`.
+
+All new tables revoke public access. Public catalogue/capacity/receipt projections deliberately omit bank fields, payment references, histories, email states and contacts. Static build's allowlist remains unchanged; email provider code and keys cannot enter dist. README contains free-tier limits, verified-sender setup, Functions-scoped environment variables, migration/redeploy steps and live acceptance checks.

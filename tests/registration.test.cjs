@@ -8,7 +8,7 @@ test('registration API and relational database complete flow',async t=>{
   const {RegistrationService}=await import('../server/registration-service.mjs');
   const {createApiHandler}=await import('../server/api-handler.mjs');
   const db=new PGlite();t.after(()=>db.close());
-  await db.exec(fs.readFileSync(path.join(__dirname,'../netlify/database/migrations/202609300001_registration.sql'),'utf8'));
+  for(const file of fs.readdirSync(path.join(__dirname,'../netlify/database/migrations')).filter(f=>f.endsWith('.sql')).sort())await db.exec(fs.readFileSync(path.join(__dirname,'../netlify/database/migrations',file),'utf8'));
   const pool=createPGlitePool(db),service=new RegistrationService(pool);
   const settings={enabled:true,capacity:2,closeDate:null,allowPartnerNeeded:true,autoWaitlist:true};
   const catalogue={id:'t_test',name:'Test Open',date:'2026-10-24',venue:'Test hall',revision:0,events:[

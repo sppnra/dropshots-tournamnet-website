@@ -7,12 +7,73 @@ This is the complete project, extending the existing HTML/CSS/JavaScript tournam
 - Public, mobile-friendly singles and doubles registration; full teams or “I need a partner”.
 - Event opening/closing, closing dates, capacity, partner matching and automatic waitlist switches.
 - Organizer login; tournament/event/status filters, player search and registration statistics.
-- Confirm, waitlist, reject, withdraw, delete and registration details.
+- Approve/confirm, waitlist, reject, withdraw, delete and registration details.
+- Private bank settings, per-event GBP fees, approval emails, manual payment tracking and optional receipt emails.
 - Pair two players into one doubles entry.
 - Confirmed registrations automatically import into the existing Entries screen. Repeated confirmation and refresh do not duplicate entries.
 - Server validation, private contact details, transaction-safe capacity and idempotent submissions.
 - Existing tournaments, formats, standings, seeds, courts, scoring rules, results and JSON backups.
 - Fixes for premature knockout advancement, seeded placement, group crossover pairings and undo at game/match boundaries.
+
+## Approval emails and manual bank-transfer payments
+
+Registration stays `pending`, `confirmed` (approved), `waitlisted`, `needs_partner`, `rejected` or `withdrawn`. A separate payment record is `not_required`, `pending` or `paid`. Before approval the table shows **Not started**. Approval reserves the roster place immediately, regardless of whether payment/email has completed. There is no payment gateway.
+
+Set an **Entry fee** in GBP and **Payment required** independently for each event, then **Save & publish registration**. Doubles fees cover the whole team. A team formed by pairing two needs-partner registrations shares one charge, one reference and one payment history. At approval, the fee is frozen into `payment_amount`; changing the event fee later does not change an existing charge. References contain a 1–4-character prefix and 13 random hexadecimal characters (at most 18 characters), are database-unique and never change on retry/reconfirm.
+
+In **Registrations**, after signing in, fill **Tournament bank details** and click **Save bank details**. These fields are stored only in Netlify Database, loaded only by organizer APIs, and not saved in localStorage or browser exports. They are not included in public catalogue, capacity or registration receipt responses. Bank details are saved separately from event publishing. Publish a new tournament once before saving its bank details.
+
+Approving a paid event emails each player individually. Initial registration sends no email and displays **Pending organizer approval**. Free events send no bank instructions. Approval emails show the tournament, event/team, fee, bank details and reference. **Mark payment received** records the signed-in organizer and timestamp, retaining audit/history. The **Send an email when marking payment received** checkbox makes payment receipts optional. Payment actions work after draw creation because they do not change the roster. There is deliberately no reversal/delete-payment action in this release.
+
+Revenue totals count confirmed roster entries once per team, using stored payment amounts. Rejected, withdrawn and waitlisted entries are excluded from expected revenue. Withdrawing an entry retains its payment history; this does not issue a refund or reverse an actual bank transfer.
+
+### Email setup — Brevo Free
+
+No email provider package is installed. `server/email.mjs` calls Brevo's transactional HTTP API from the Netlify Function. Brevo currently offers **300 email sends per day** on its non-expiring Free plan, including transactional messages. A two-player team consumes two sends per email type; approval plus receipt consumes four. Free emails carry Brevo branding. Choose Free and do not enable a paid subscription or paid extras. [Brevo Free limits](https://help.brevo.com/hc/en-us/articles/208580669-FAQs-What-are-the-limits-of-the-Free-plan)
+
+1. Create a Free account at [Brevo](https://www.brevo.com/), verify your account email and complete the required account details. If transactional sending needs activation/review, complete that in Brevo before testing.
+2. Open your account menu → **Settings → Senders, Domains, IPs → Senders → Add a sender**. Use **Dropshot Folks** as the sender name and an email address whose inbox you control. If you have no custom domain, use your existing mailbox for initial tests. Enter the six-digit code Brevo emails to that mailbox. [Sender setup](https://help.brevo.com/hc/en-us/articles/208836149-Create-a-new-sender-From-name-and-From-email)
+3. Open **Settings → SMTP & API → API Keys & MCP → Generate a new API key**. Verify your account when asked, name it `Dropshot Folks Netlify`, and copy the ordinary API key. This app needs an **API key**, not an SMTP password or MCP key. Keep it private. Brevo can deactivate keys after 90 days without a successful API call; check this before a later tournament. [API-key setup](https://help.brevo.com/hc/en-us/articles/209467485-Create-and-manage-your-API-keys)
+4. In [Netlify](https://app.netlify.com/), open your existing project → **Project configuration → Environment variables → Add a variable**. Add:
+
+   | Variable | Value |
+   | --- | --- |
+   | `EMAIL_API_KEY` | The private Brevo API key |
+   | `EMAIL_FROM` | Just the verified mailbox address, e.g. `your-address@gmail.com` |
+   | `EMAIL_REPLY_TO` | Optional organizer mailbox for player replies |
+
+   Include the **Functions** scope (or All scopes if that is the available option), and set the Production context. Mark the API key secret if Netlify offers that option. Never put these values in `config.js`, `netlify.toml`, a frontend file or GitHub. [Netlify Function environment variables](https://docs.netlify.com/build/functions/environment-variables/)
+5. Upload/commit the complete updated repository, including `server/` and **both** SQL migrations. Keep `npm run build`, `dist`, and `netlify/functions` as before. Redeploy after setting the variables. The native Database migration adds the payment tables automatically; do not recreate your database or rerun the original create-table migration manually.
+6. Sign in with the existing organizer Identity role. Publish a paid event, save bank details, and run the live test below.
+
+Your website can stay on `https://comforting-choux-1c87b3.netlify.app/`. The website domain and email sender are separate. You cannot authenticate `netlify.app`, Gmail or Yahoo as an email domain you own. Brevo allows mailbox-code sender verification, but recommends a domain you control for reliable deliverability; free-address senders may be rewritten, filtered or rejected. Check Brevo logs and spam folders in your tests. No custom-domain purchase is required by the code or for initial mailbox tests; guaranteed inbox delivery is not promised. [Brevo sending-domain guidance](https://help.brevo.com/hc/en-us/articles/35852083084178-Domain-setup-for-better-email-deliverability)
+
+No new paid service is required. Existing Netlify hosting, Functions, Identity and Database remain subject to your plan's quotas; stay within the free allowances. At Brevo's daily quota the provider may queue accepted messages for later delivery. The app's **sent** state means provider acceptance, not proof that a message reached the inbox.
+
+### Failed emails and safe retries
+
+Approval and payment commit first. Missing email credentials, bank details or a provider failure cannot roll them back. The organizer sees a warning, and **Details** shows email state and sent/received timestamps. Use **Retry approval email** or **Send/Retry payment email**. References, approved amounts and payment timestamps stay unchanged. A partially successful doubles email retries only the unsent player's message.
+
+A database outbox records each recipient and email type uniquely and stores the rendered content privately. Row locks prevent concurrent sends. Brevo receives the same stored UUID idempotency key on retry. A timeout/crash can leave delivery **uncertain**; retry promptly within the conservative 14-minute window. Outside that window the app blocks an automatic resend to avoid duplicates: check Brevo **Transactional → Logs** and the player's inbox, then have the outbox record reconciled against that evidence by a maintainer. There is no force-resend override in the app. This intentionally prefers avoiding duplicate bank instructions over claiming impossible exactly-once delivery across the database and email provider. Accepted emails are never resent by reconfirming/reloading. No scheduler or paid queue is required; unsent work is retried by the organizer. [Brevo idempotency](https://developers.brevo.com/docs/heterogenous-versions-batch-emails)
+
+### Exact live test after redeploy
+
+1. Verify the Netlify build and both migrations succeeded. Keep your existing Database and Identity configuration.
+2. In Registrations, set one test event's fee to `20.00`, Payment required **On**, Open **On**, closing date blank or in the future, and save/publish. Save valid bank details separately.
+3. Open `/register?tournament=YOUR_EXISTING_TOURNAMENT_ID` in a private window. Submit with inboxes you control. Expect pending approval, no bank information and **no email yet**.
+4. Refresh the organizer page and approve the entry. Expect Confirmed + Payment pending, a stable reference and £20.00. Check the approval email in the player's inbox/Brevo logs; for doubles check both inboxes. Click Refresh again: no duplicate email/entry.
+5. Change the event fee to £25 and publish. The approved entry must still show £20.
+6. Only after checking a real transfer, click **Mark payment received**. For a dry-run test, use a clearly marked test registration and test bank details rather than claiming receipt of a real payment. Leave the receipt checkbox on to test the second email. Expect Paid, organizer identity and received timestamp. Refresh: one receipt only.
+7. Open Details and verify the amount/reference, approval/email dates, payment date and contacts. Compare Expected/Received/Outstanding; doubles counts once per team.
+8. Test Payment required **Off** with a different registration: Confirmed + Not required; no bank email.
+9. To test failure safely, remove `EMAIL_API_KEY` and redeploy a test environment, then approve a fresh test registration. Approval must remain Confirmed + Payment pending with a warning. Restore the key, redeploy and retry: same reference/amount, one successful email. Do the equivalent for a payment receipt; Paid must remain Paid. Do not disable production email during a real registration window.
+10. In the logged-out window, inspect `/api/tournaments?tournament=ID`, `/api/capacity?tournament=ID` and signup receipts: no bank or payment-admin fields. `/api/admin/payment-settings?tournament=ID` must return 401.
+
+### Automated checks and local email previews
+
+`npm test` covers upgrade compatibility, no email at signup, paid/free approvals, snapshot/reference stability, double confirmation, two-recipient emails, shared partner payments, receipt auditing, partial and total failures, safe retries, authentication and public privacy, alongside the engine tests. `npm run build` builds production assets. `npm run test:browser` exercises publish/public-read, mobile signup, approval/Entries and the bank/payment UI.
+
+`npm run dev` **never sends real emails**, even if email environment variables are present. It injects a preview sender that records only a local preview notice in the terminal. Local email states say sent to exercise the UI, but no real mailbox is contacted. Tests also use injected fake providers. Live Brevo sender verification and delivery must be tested separately after you configure your account.
 
 ## Start here
 
@@ -175,3 +236,26 @@ package.json / lockfiles                  Dependencies and commands
 ## Next migration — not implemented here
 
 Move entries, matches, score events and court scheduling into shared Netlify Database tables, with concurrency control and live public updates. Registration is ready for that later step; this release deliberately keeps the scoring engine local.
+
+
+Registration publish diagnostics
+--------------------------------
+Publish preserves local tournament/event IDs, explicitly marks the tournament published, commits settings, and checks the anonymous public GET before reporting registration open. A local draft status does not control public registration. New events have no closing date by default; existing explicit closing dates are preserved and expire after that day in Europe/London. Full events with automatic waitlist remain visible.
+
+In Registrations, use **Inspect published database** after signing in. It reads `GET /api/admin/catalogue-diagnostic?tournament=ID` and shows tournament metadata, persisted event settings, counts, and visibility reasons, without player contacts. The endpoint requires organizer/admin Identity roles. Function logs include IDs, row presence, enabled/closing checks and final reason. Canonical links use `/register?tournament=ID`; `/register.html?t=ID` remains supported. After updating an older deploy, inspect the closing date, clear or correct it if appropriate, and publish again.
+
+
+## Files changed in the approval/payment release
+
+Frontend: `app.js`, `registration-admin.js`, `register.js`, `styles.css`.
+Backend: `server/registration-service.mjs`, `server/api-handler.mjs`, `server/validation.mjs`.
+Local/packaging: `scripts/dev-server.mjs`, `scripts/package.py`, `scripts/verify-clean.cjs`.
+Existing tests: `tests/registration.test.cjs`, `tests/browser-smoke.cjs`.
+Documentation: `README.md`, `ARCHITECTURE.md`.
+
+New: `server/payments.mjs`, `server/email.mjs`, `server/email-templates.mjs`, `netlify/database/migrations/202609300002_payments.sql`, `tests/payments.test.cjs`, `.env.example`.
+`tests/publish.test.cjs` also includes the prior publish/public-read regression coverage in this complete repository.
+
+`package.json`, npm/pnpm locks, `netlify.toml`, Identity client and the original migration are retained. No email SDK/dependency is added. The complete source ZIP contains all original frontend, backend, scripts, tests, Netlify Functions and migrations folders; it excludes node_modules, generated dist, local caches, screenshots and private environment files.
+
+Verification for this release: clean npm install, all 36 automated tests and npm run build passed. The Edge/Playwright browser flow passed with injected local email previews, including both registration URL forms, public privacy, roster import, private bank settings, doubles approval/payment and receipt states. Real Brevo mailbox delivery, Identity sessions and applying the migration to your live Netlify project are deployment checks, not claimed as performed locally.

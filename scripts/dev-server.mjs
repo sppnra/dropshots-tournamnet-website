@@ -9,8 +9,9 @@ import {createApiHandler} from '../server/api-handler.mjs';
 import {createPGlitePool} from '../tests/pglite-pool.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const db=new PGlite();
-await db.exec(await fs.readFile(path.join(root,'netlify/database/migrations/202609300001_registration.sql'),'utf8'));
-const service=new RegistrationService(createPGlitePool(db));
+for(const file of (await fs.readdir(path.join(root,'netlify/database/migrations'))).filter(f=>f.endsWith('.sql')).sort())await db.exec(await fs.readFile(path.join(root,'netlify/database/migrations',file),'utf8'));
+// Never send real emails from the local demo, even if production env vars exist.
+const service=new RegistrationService(createPGlitePool(db),{send:async(message,key)=>{console.log('LOCAL EMAIL PREVIEW ONLY',{kind:message.subject,key});return {messageId:`local-preview-${key}`};}});
 await service.publish({id:'local-demo-tournament',name:'Dropshot Folks Local Demo',date:'2026-10-24',venue:'Local test hall',revision:0,events:[
   {id:'local-singles',name:'Singles',type:'singles',format:'roundrobin',registration:{enabled:true,capacity:2,closeDate:null,allowPartnerNeeded:false,autoWaitlist:true}},
   {id:'local-doubles',name:'Doubles',type:'doubles',format:'groups2',registration:{enabled:true,capacity:8,closeDate:null,allowPartnerNeeded:true,autoWaitlist:true}}

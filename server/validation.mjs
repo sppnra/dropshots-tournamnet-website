@@ -32,17 +32,23 @@ export function registrationInput(body){
   check(!out.player2||out.player1.email!==out.player2.email,'Players must have separate email addresses');
   return out;
 }
+export function fee(value){
+  const v=value??'0.00';check((typeof v==='string'||typeof v==='number')&&/^\d{1,6}(\.\d{1,2})?$/.test(String(v)),'Entry fee must be a GBP amount with up to two decimal places');
+  return Number(v).toFixed(2);
+}
 export function catalogueInput(body){
   check(body&&Array.isArray(body.events)&&body.events.length<=50,'Include up to 50 events');
   const out={id:id(body.id,'tournament'),name:text(body.name,'Tournament name',160),date:date(body.date,'tournament date'),venue:text(body.venue,'Venue',200,true),revision:integer(body.revision,'Revision',0,2147483646),events:[]};
   const ids=new Set();
   for(const e of body.events){
     const settings=e.registration;check(settings&&typeof settings==='object','Registration settings are required');
+    const entryFee=fee(settings.entryFee),paymentRequired=settings.paymentRequired===undefined?false:bool(settings.paymentRequired,'Payment required');
+    check(!paymentRequired||Number(entryFee)>0,'Set a positive entry fee when payment is required');
     const eventId=id(e.id,'event');check(!ids.has(eventId),'Duplicate event');ids.add(eventId);
     check(['singles','doubles'].includes(e.type),'Invalid event type');
     check(['roundrobin','groups2','groups4','knockout'].includes(e.format),'Invalid tournament format');
     out.events.push({id:eventId,name:text(e.name,'Event name',160),type:e.type,format:e.format,
-      capacity:integer(settings.capacity,'Capacity'),enabled:bool(settings.enabled,'Registration'),closeDate:date(settings.closeDate,'closing date'),allowPartnerNeeded:bool(settings.allowPartnerNeeded,'Partner matching'),autoWaitlist:bool(settings.autoWaitlist,'Automatic waitlist')});
+      entryFee,paymentRequired,capacity:integer(settings.capacity,'Capacity'),enabled:bool(settings.enabled,'Registration'),closeDate:date(settings.closeDate,'closing date'),allowPartnerNeeded:bool(settings.allowPartnerNeeded,'Partner matching'),autoWaitlist:bool(settings.autoWaitlist,'Automatic waitlist')});
   }
   return out;
 }

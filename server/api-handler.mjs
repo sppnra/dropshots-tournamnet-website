@@ -13,8 +13,9 @@ export function createApiHandler({service,getUser}){
         check((request.headers.get('content-type')||'').startsWith('application/json'),'Send JSON data',415);
         check(Number(request.headers.get('content-length')||0)<=40000,'Request is too large',413);
       }
+      let user=null;
       if(route.startsWith('admin/')){
-        const user=await getUser();
+        user=await getUser();
         check(user,'Organizer sign-in required',401);
         check(user.roles?.some(role=>['organizer','admin'].includes(role)),'This account needs the organizer role',403);
         if(route==='admin/session'&&method==='GET')return json({user:{id:user.id,email:user.email}});
@@ -33,7 +34,18 @@ export function createApiHandler({service,getUser}){
       }
       if(route==='registrations'&&method==='POST')return json(await db.submit(body),201);
       if(route==='admin/catalogue'&&method==='GET')return json(await db.catalogue(true));
-      if(route==='admin/catalogue'&&method==='POST')return json(await db.publish(body));
+      if(route==='admin/catalogue'&&method==='POST'){
+        const result=await db.publish(body);
+        const diagnostic=await db.diagnostics(result.id);
+        console.info('Registration publish',JSON.stringify({tournament_id:result.id,revision:result.revision,tournament_found:diagnostic.tournament_found,event_ids:diagnostic.events.map(e=>e.id),reason:diagnostic.reason}));
+        return json({...result,diagnostic});
+      }
+      if(route==='admin/catalogue-diagnostic'&&method==='GET')return json(await db.diagnostics(query.tournament));
+      if(route==='admin/payment-settings'&&method==='GET')return json(await db.payments.settings(query.tournament));
+      if(route==='admin/payment-settings'&&method==='POST')return json(await db.payments.saveSettings(body));
+      if(route==='admin/payment-stats'&&method==='GET')return json(await db.payments.stats(query.tournament));
+      const paymentRoute=route.match(/^admin\/registrations\/([a-f0-9-]+)\/(payment|retry-email)$/i);
+      if(paymentRoute&&method==='POST')return json(paymentRoute[2]==='payment'?await db.payments.markReceived(paymentRoute[1],body,user):await db.payments.retry(paymentRoute[1],body.kind));
       if(route==='admin/registrations'&&method==='GET')return json(await db.list(query));
       if(route==='admin/entries'&&method==='GET')return json(await db.entries(query.tournament));
       if(route==='admin/pair'&&method==='POST')return json(await db.pair(body));
