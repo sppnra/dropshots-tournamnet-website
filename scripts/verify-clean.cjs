@@ -4,7 +4,7 @@ const fs=require('node:fs');const path=require('node:path');const {spawnSync}=re
 const root=path.join(__dirname,'..');
 const target=path.join(root,'.verification',`clean-${Date.now()}`);
 fs.mkdirSync(target,{recursive:true});
-const files=['index.html','register.html','app.js','register.js','registration-admin.js','api.js','config.js','identity-client.js','styles.css','package.json','package-lock.json','pnpm-lock.yaml','pnpm-workspace.yaml','netlify.toml','.gitignore','.env.example','README.md','ARCHITECTURE.md'];
+const files=['index.html','register.html','app.js','register.js','registration-admin.js','api.js','config.js','identity-client.js','styles.css','scoring-core.js','team-cup-ui.js','team-cup-admin.html','team-cup-admin.js','team-cup-register.html','team-cup-register.js','team-cup.html','team-cup-live.js','referee.html','referee.js','package.json','package-lock.json','pnpm-lock.yaml','pnpm-workspace.yaml','netlify.toml','.gitignore','.env.example','README.md','ARCHITECTURE.md','TEAM-CUP-BETA.md'];
 for(const file of files)if(fs.existsSync(path.join(root,file)))fs.copyFileSync(path.join(root,file),path.join(target,file));
 for(const dir of ['scripts','netlify','server','tests'])fs.cpSync(path.join(root,dir),path.join(target,dir),{recursive:true});
 const npmCli=process.argv[2];

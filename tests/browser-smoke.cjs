@@ -44,9 +44,9 @@ async function main(){
     // Configure a paid event and private bank settings through the actual UI.
     await admin.locator('[data-reg-fee="local-doubles"]').fill('20.00');await admin.locator('[data-reg-payment="local-doubles"]').selectOption('yes');
     let saved=admin.waitForResponse(r=>r.url().endsWith('/api/admin/catalogue')&&r.request().method()==='POST');await admin.locator('[data-action="publish-registration"]').click();assert.equal((await saved).status(),200);
-    await admin.locator('[data-action="refresh-registrations"]').click();await admin.locator('#bank_bank_account_name').fill('Dropshot Folks');await admin.locator('#bank_bank_name').fill('Demo Bank');await admin.locator('#bank_sort_code').fill('12-34-56');await admin.locator('#bank_account_number').fill('12345678');
+    await admin.locator('[data-action="refresh-registrations"]').click();await admin.waitForFunction(()=>!remoteRegistrationLoading&&!registrationBusy);await admin.locator('#bank_bank_account_name').fill('Dropshot Folks');await admin.locator('#bank_bank_name').fill('Demo Bank');await admin.locator('#bank_sort_code').fill('12-34-56');await admin.locator('#bank_account_number').fill('12345678');
     saved=admin.waitForResponse(r=>r.url().endsWith('/api/admin/payment-settings')&&r.request().method()==='POST');await admin.getByRole('button',{name:'Save bank details',exact:true}).click();assert.equal((await saved).status(),200);
-    const bank=(await (await adminContext.request.get(`${url}/api/admin/payment-settings?tournament=local-demo-tournament`)).json()).settings;assert.equal(bank.account_number,'12345678');assert.equal(bank.sort_code,'123456');
+    const bank=(await (await adminContext.request.get(`${url}/api/admin/payment-settings?tournament=local-demo-tournament`)).json()).settings;assert.equal(bank.bank_account_name,'Dropshot Folks');assert.equal(bank.account_number,'12345678');assert.equal(bank.sort_code,'123456');
     await player.locator('[name="partnerChoice"][value="with"]').check();
     for(const [n,name] of [[1,'Payment One'],[2,'Payment Two']]){await player.locator(`#p${n}Name`).fill(name);await player.locator(`#p${n}Email`).fill(`payment${n}@example.test`);await player.locator(`#p${n}Phone`).fill('07123456789');}
     await player.locator('#privacy').check();await player.locator('#submitBtn').click();await player.getByText('Registration submitted 🏸',{exact:true}).waitFor();assert.ok(!(await player.locator('body').innerText()).includes('12345678'));
@@ -56,3 +56,4 @@ async function main(){
   }finally{if(browser)await browser.close();server.kill();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
+

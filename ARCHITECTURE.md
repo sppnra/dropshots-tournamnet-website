@@ -2,7 +2,7 @@
 
 ## Scope
 
-The existing vanilla JavaScript tournament engine remains intact. This phase centralizes registration, organizer registration management, approval emails, manual bank-transfer tracking and the confirmed-entry bridge. It does not migrate scoring or draws.
+The existing vanilla JavaScript tournament engine remains intact. This phase centralizes registration, organizer registration management, approval emails, manual bank-transfer tracking and the confirmed-entry bridge. Standard scoring/draws remain local; the dedicated Team Cup beta stores its scoring/draws centrally.
 
 ```text
 Player phone                         Organizer browser
@@ -142,3 +142,14 @@ New organizer routes, protected by the existing Identity roles, Origin check and
 - POST `/api/admin/registrations/UUID/retry-email` with `{kind:'approval'|'payment'}`.
 
 All new tables revoke public access. Public catalogue/capacity/receipt projections deliberately omit bank fields, payment references, histories, email states and contacts. Static build's allowlist remains unchanged; email provider code and keys cannot enter dist. README contains free-tier limits, verified-sender setup, Functions-scoped environment variables, migration/redeploy steps and live acceptance checks.
+
+
+## Team Cup beta central scoring
+
+The additive 202609300003_team_cup.sql migration adds team_cups (versioned group/tie document linked to tournaments), normalized team_cup_teams, team_cup_members, team_cup_matches, referee_tokens and score_events. No existing table/data is removed. server/team-cup-engine.mjs derives tie results, standings and knockout progression; server/team-cup.mjs owns validation, transactions, team registration/approval, courts/lineups, scoped tokens and scoring/audit. scoring-core.js supplies the same win-by-two/cap mathematics to both standard and Cup modes. Standard engine storage and draw generation remain intact.
+
+Each Cup mutation locks its Cup row and updates only changed match rows; scorer writes require an exact match.version. Read snapshots hold a share lock so tournament structure and scores are consistent. Every score action stores its before-state and actor; undo marks the original event undone and appends an audit entry. Completed upstream corrections invalidate only unstarted dependent matches and their tokens; started descendants must be corrected first. Group corrections before knockout play revoke/rebuild the unstarted knockout safely.
+
+Tokens use 32 random bytes, hash lookup, and server-only raw copies for organizer link management. The assigned-match referee API receives a Bearer token and permits only point, undo or award while the match is unfinished. Organizer routes retain Identity organizer/admin checks and origin/JSON bounds. Referee GET projects only that match/tie/assigned lineup names. Public projections exclude tokens, audits, contacts, category/shirt data and bank fields. Referee URLs use fragments and no-referrer headers.
+
+The standalone operational dashboard reuses the existing Identity session. The public board polls every 5s, organizer every 3s and referee every 5s while idle/visible; button mutations are serialized client-side. There is no realtime provider. The existing Function's rate cap is raised for multiple users sharing one venue IP; free-plan request/Database quotas still apply. See TEAM-CUP-BETA.md for schema, routes, setup, qualification policies and known operational boundaries.

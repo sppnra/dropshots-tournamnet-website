@@ -19,3 +19,16 @@
 @media(max-width:560px){.registration-intro h1{font-size:33px}.registration-top span.registration-pill{display:none}.player-block{grid-template-columns:1fr}.player-number{width:29px;height:29px}.registration-success{margin-top:45px}.registration-page>.registration-card{margin:55px 14px 0}}
 
 .bank-settings{margin:16px 0}.bank-settings input,.bank-settings textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:10px}.bank-settings textarea{min-height:90px}.bank-settings button{margin-top:12px}.payment-stats{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin:16px 0}.payment-details{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2fr);gap:8px;font-size:13px}.payment-details dt{color:var(--muted)}.payment-details dd{margin:0;overflow-wrap:anywhere}
+/* Team Cup beta mobile pages */
+.cup-page{max-width:1200px;margin:0 auto;padding:24px;overflow-wrap:anywhere}
+.cup-page>header{margin-bottom:28px}.cup-page .card{margin-bottom:16px}
+.cup-page .grid.equal{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.cup-page .table-wrap{overflow-x:auto}.cup-page table{width:100%;border-collapse:collapse}
+.cup-page th,.cup-page td{padding:10px;text-align:left;border-bottom:1px solid #dce3d9}
+.cup-page input,.cup-page select{max-width:100%;min-height:44px}.cup-page .inline{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.cup-score-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:center}
+.cup-score-grid>div{min-width:0;padding:16px;background:#edf3e9;border-radius:16px}
+.cup-score-grid strong{display:block;font-size:clamp(56px,10vw,100px);line-height:1.2;font-weight:900}
+.cup-score-grid button{width:100%;min-height:76px;margin-top:12px;font-size:18px;font-weight:800}
+.cup-score-small{font-size:32px}.cup-scorer .inline button{min-height:48px}
+@media(max-width:600px){.cup-page{padding:12px}.cup-page .card-pad{padding:16px}.cup-score-grid{gap:10px}.cup-score-grid>div{padding:10px}.cup-score-grid h3{font-size:17px}.cup-score-grid p{font-size:13px}.cup-page h1{font-size:30px}.cup-score-grid button{font-size:16px}}

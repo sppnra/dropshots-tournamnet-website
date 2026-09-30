@@ -9,7 +9,8 @@ required = [
     "index.html", "register.html", "app.js", "register.js", "registration-admin.js",
     "api.js", "config.js", "identity-client.js", "styles.css", "package.json",
     "package-lock.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "netlify.toml",
-    ".gitignore", ".env.example", "README.md", "ARCHITECTURE.md",
+    'scoring-core.js','team-cup-ui.js','team-cup-admin.html','team-cup-admin.js','team-cup-register.html','team-cup-register.js','team-cup.html','team-cup-live.js','referee.html','referee.js',
+    ".gitignore", ".env.example", "README.md", "ARCHITECTURE.md", "TEAM-CUP-BETA.md",
 ]
 folders = ["scripts", "netlify", "server", "tests"]
 files = [root / name for name in required]

@@ -6,7 +6,8 @@
     "build": "node scripts/build.cjs",
     "dev": "node scripts/dev-server.mjs",
     "test:browser": "node tests/browser-smoke.cjs",
-    "test": "node --test tests/*.test.cjs"
+    "test": "node --test tests/*.test.cjs",
+    "test:team-cup-browser": "node tests/team-cup-browser.cjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.3.14",

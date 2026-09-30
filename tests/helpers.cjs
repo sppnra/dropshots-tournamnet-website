@@ -10,6 +10,7 @@ function appContext(config={},search=''){
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},
     console,setTimeout:()=>0,clearTimeout(){},setInterval:()=>0,clearInterval(){},confirm:()=>true
   });
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../scoring-core.js'),'utf8'),ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname,'../registration-admin.js'),'utf8'),ctx);
   let source=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
   source=source.replace(/\nrender\(\);\s*initRegistration\(\);\s*$/,'');

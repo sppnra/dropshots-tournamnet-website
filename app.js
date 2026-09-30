@@ -62,7 +62,7 @@ function ensureActive(){const t=tournament();if(t){state.activeTournamentId=t.id
 
 function appShell(content){
   const t=tournament();
-  const nav=[['dashboard','◫','Dashboard'],['events','◇','Events'],['registrations','✦','Registrations'],['entries','♙','Entries'],['draws','⌘','Draws'],['matches','≋','Matches'],['scoring','●','Live scoring'],['courts','⌗','Courts'],['results','♛','Results'],['settings','⚙','Tournament setup']];
+  const nav=[['dashboard','◫','Dashboard'],['events','◇','Events'],['registrations','✦','Registrations'],['teamcup','♜','Team Cup β'],['entries','♙','Entries'],['draws','⌘','Draws'],['matches','≋','Matches'],['scoring','●','Live scoring'],['courts','⌗','Courts'],['results','♛','Results'],['settings','⚙','Tournament setup']];
   return `<div class="app">
     <aside class="sidebar">
       <div class="brand"><div class="brand-mark">DF</div><div><b>Dropshot Folks</b><span>Tournament OS</span></div></div>
@@ -185,8 +185,8 @@ function matchNames(e,m){ return [entryName(e,m.aId),entryName(e,m.bId)]; }
 function currentGame(m){ if(!m.games?.length)m.games=[{a:0,b:0,complete:false}]; return m.games[m.games.length-1]; }
 function completedGameWins(m){ return (m.games||[]).reduce((s,g)=>{if(g.complete){if(g.a>g.b)s.a++;else s.b++;}return s;},{a:0,b:0}); }
 function scoreText(m){ if(m.walkover)return 'Awarded';if(m.bye)return 'Bye';const done=(m.games||[]).filter(g=>g.complete).map(g=>`${g.a}-${g.b}`); const g=(m.games||[]).findLast?.(x=>!x.complete) || (m.games||[]).filter(x=>!x.complete).slice(-1)[0]; if(m.status!=='completed'&&g&&(g.a||g.b))done.push(`${g.a}-${g.b}`); return done.join(' · ')||'—'; }
-function gameWon(rule,g,side){ const a=g.a,b=g.b,p=rule.points||21,cap=p===21?30:p+9; const s=side==='a'?a:b,o=side==='a'?b:a; return (s>=p&&s-o>=2)||s>=cap; }
-function matchNeededWins(rule){ return Math.floor((rule.bestOf||3)/2)+1; }
+function gameWon(rule,g,side){ if(typeof DropshotScoring!=='undefined')return DropshotScoring.gameWon(rule,g,side);const a=g.a,b=g.b,p=rule.points||21,cap=p===21?30:p+9; const s=side==='a'?a:b,o=side==='a'?b:a; return (s>=p&&s-o>=2)||s>=cap; }
+function matchNeededWins(rule){ if(typeof DropshotScoring!=='undefined')return DropshotScoring.neededWins(rule);return Math.floor((rule.bestOf||3)/2)+1; }
 
 function makeMatch(e, data={}){ const base={phase:data.phase||'roundrobin',round:data.round||'',group:data.group||null};ensureEventScoring(e);const scoring=clone(e.scoringRules[stageKeyForMatch(base)]||e.scoringRules.knockout);return {id:uid('m'),eventId:e.id,label:data.label||'',phase:base.phase,round:base.round,roundIndex:data.roundIndex??0,group:base.group,aId:data.aId||null,bId:data.bId||null,court:data.court||null,status:data.status||'pending',scoring,games:[{a:0,b:0,complete:false}],history:[],winnerId:null,nextMatchId:data.nextMatchId||null,nextSlot:data.nextSlot||null}; }
 function allPairs(ids){ const out=[]; for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++)out.push([ids[i],ids[j]]); return out; }
@@ -304,7 +304,7 @@ function switchTournamentModal(){ openModal(modal('Switch tournament',`<div clas
 
 function bindDynamic(){
   bindRegistrationControls();
-  $$('[data-route]').forEach(b=>b.onclick=()=>{state.route=b.dataset.route;save();if(state.route==='registrations'&&authUser)setTimeout(loadRemoteRegistrations,0);});
+  $$('[data-route]').forEach(b=>b.onclick=()=>{if(b.dataset.route==='teamcup'){location.href='team-cup-admin.html';return;}state.route=b.dataset.route;save();if(state.route==='registrations'&&authUser)setTimeout(loadRemoteRegistrations,0);});
   $$('[data-event]').forEach(b=>b.onclick=()=>{state.activeEventId=b.dataset.event;state.selectedMatchId=null;save();});
   $$('[data-open-event]').forEach(b=>b.onclick=()=>{state.activeEventId=b.dataset.openEvent;state.route='draws';save();});
   $$('[data-open-tournament]').forEach(b=>b.onclick=()=>{state.activeTournamentId=b.dataset.openTournament;state.activeEventId=state.tournaments.find(t=>t.id===state.activeTournamentId)?.events[0]?.id||null;state.route='dashboard';state.mode='admin';closeModal();save();});

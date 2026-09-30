@@ -1,6 +1,10 @@
 # Dropshot Folks — Netlify registration edition
 
-This is the complete project, extending the existing HTML/CSS/JavaScript tournament app. Registration uses **Netlify Functions + Netlify Database + Netlify Identity**. Players do not need accounts. Draws and live scoring stay in the organizer's browser for this phase.
+This is the complete project, extending the existing HTML/CSS/JavaScript tournament app. Registration uses **Netlify Functions + Netlify Database + Netlify Identity**. Players do not need accounts. Standard-mode draws and live scoring stay in the organizer's browser; Team Cup scores and progression are shared in Netlify Database.
+
+## Team Cup beta
+
+The complete project now includes the 18 October 2026 **Badminton Team Cup** preset: 12 teams of four, captain registration, MD/WD/XD ties, shared live scores, secure referee links, groups and knockout. Open **Team Cup β** in the organizer sidebar after signing in. Read [TEAM-CUP-BETA.md](TEAM-CUP-BETA.md) for exact deployment, creation, lineup/referee/phone testing steps, storage boundaries and limitations. Team Cup is centrally stored; standard-mode draws and scores still stay in localStorage. The written 12-team limit takes priority over the poster's 18 slots.
 
 ## What is included
 

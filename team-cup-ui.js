@@ -1,0 +1,24 @@
+const cupEscape=(v='')=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const cupNames={MD:'Men’s Doubles',WD:'Women’s Doubles',XD:'Mixed Doubles'};
+const cupTeam=(cup,id)=>cup.teams.find(t=>t.id===id);
+const cupTeamName=(cup,id)=>cupTeam(cup,id)?.name||'Awaiting qualifier';
+const cupPlayers=(team,ids)=>ids.map(id=>team?.members.find(p=>p.id===id)?.name||'Unassigned').join(' / ')||'Lineup not assigned';
+const cupScore=m=>m.games.map(g=>`${g.a}–${g.b}`).join(' · ');
+async function cupApi(path,body,token){
+  const response=await fetch(`/api/${path}`,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});
+  const data=await response.json();if(!response.ok){const error=new Error(data.error||'Request failed');error.status=response.status;throw error;}return data;
+}
+function cupBoard(cup){
+  const live=cup.matches.filter(m=>m.status==='live');
+  const card=m=>{const t=cup.ties.find(t=>t.id===m.tieId);return `<article class="card card-pad"><div class="eyebrow">Court ${m.court||'—'} · ${cupEscape(cupNames[m.discipline])}</div><h3>${cupEscape(cupTeamName(cup,t.a))} vs ${cupEscape(cupTeamName(cup,t.b))}</h3><strong class="cup-score-small">${cupScore(m)}</strong><p>${cupEscape(m.status)}${m.awarded||m.walkover?' · Awarded / walkover':''}</p></article>`;};
+  return `<h2>Live now</h2><div class="grid equal">${live.map(card).join('')||'<p>No matches live right now.</p>'}</div>
+    ${cup.champion?`<section class="hero card-pad"><div class="eyebrow">Team Cup champion</div><h2>${cupEscape(cupTeamName(cup,cup.champion))}</h2></section>`:''}
+    <h2>Group standings</h2>${cup.standings.map(g=>`<section class="card card-pad"><h3>Group ${cupEscape(g.name)}</h3><div class="table-wrap"><table><thead><tr><th>Pos</th><th>Team</th><th>Played</th><th>Won</th><th>Lost</th><th>Matches W</th><th>Matches L</th><th>Diff</th><th>Points diff</th></tr></thead><tbody>${g.rows.map(r=>`<tr><td>${r.position}</td><td>${cupEscape(r.name)}</td><td>${r.played}</td><td>${r.won}</td><td>${r.lost}</td><td>${r.matchesWon}</td><td>${r.matchesLost}</td><td>${r.matchDifference}</td><td>${r.pointDifference}</td></tr>`).join('')}</tbody></table></div></section>`).join('')||'<p>Groups have not been drawn yet.</p>'}
+    <h2>Ties, upcoming fixtures and knockout</h2><div class="grid equal">${cup.ties.map(t=>`<section class="card card-pad"><div class="eyebrow">${cupEscape(t.round)} · ${cupEscape(t.status)}</div><h3>${cupEscape(cupTeamName(cup,t.a))} vs ${t.bye?'Bye':cupEscape(cupTeamName(cup,t.b))}</h3><strong>${t.winsA}–${t.winsB}</strong>${t.winner?`<p>${cupEscape(cupTeamName(cup,t.winner))} ${t.status==='completed'?'wins':'has clinched the tie'}</p>`:''}${t.matchIds.map(id=>{const m=cup.matches.find(m=>m.id===id);return m?`<p>${cupEscape(cupNames[m.discipline])} · Court ${m.court||'—'} · ${cupScore(m)} · ${cupEscape(m.status)}</p>`:'';}).join('')}</section>`).join('')||'<p>Approved teams will appear in the draw.</p>'}</div>`;
+}
+function cupScorer(data,admin=false){
+  const m=data.match,t=data.tie,g=m.games.at(-1),disabled=m.status==='completed'?'disabled':'';
+  return `<section class="card card-pad cup-scorer"><div class="eyebrow">DROPSHOT FOLKS · ${cupEscape(data.name)}</div><h2>Court ${m.court||'—'} · ${cupEscape(cupNames[m.discipline])}</h2><p>${cupEscape(t.round)} · ${m.rule.bestOf===1?'1 game':'Best of 3'} × ${m.rule.points} · Game ${m.games.length}</p>
+    <div class="cup-score-grid"><div><h3>${cupEscape(t.a?.name)}</h3><p>${cupEscape(cupPlayers(t.a,m.lineup.a))}</p><strong>${g.a}</strong><button class="btn primary" data-score="point" data-side="a" ${disabled}>+1 TEAM A</button></div><div><h3>${cupEscape(t.b?.name)}</h3><p>${cupEscape(cupPlayers(t.b,m.lineup.b))}</p><strong>${g.b}</strong><button class="btn primary" data-score="point" data-side="b" ${disabled}>+1 TEAM B</button></div></div>
+    <p>${cupEscape(m.status)} · Games: ${cupScore(m)}${m.winner?` · ${m.winner==='a'?cupEscape(t.a?.name):cupEscape(t.b?.name)} wins`:''}</p><div class="inline"><button class="btn" data-score="undo" ${admin?'':disabled}>UNDO</button><button class="btn" data-score="award" data-side="a" ${admin?'':disabled}>Award Team A</button><button class="btn" data-score="award" data-side="b" ${admin?'':disabled}>Award Team B</button>${admin?'<button class="btn" data-score="walkover" data-side="a">Walkover A</button><button class="btn" data-score="walkover" data-side="b">Walkover B</button>':''}</div>${m.status==='completed'&&!admin?'<p>This match is complete. The link is read-only; contact the organizer for corrections.</p>':''}</section>`;
+}

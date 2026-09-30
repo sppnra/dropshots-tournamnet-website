@@ -1,0 +1,38 @@
+const {spawn}=require('node:child_process');const path=require('node:path');const fs=require('node:fs');const assert=require('node:assert/strict');const {randomUUID}=require('node:crypto');const {chromium}=require('playwright');
+const root=path.join(__dirname,'..'),url='http://127.0.0.1:8900',tid='t_team_cup_2026';
+async function main(){
+  const server=spawn(process.execPath,['scripts/dev-server.mjs'],{cwd:root,env:{...process.env,PORT:'8900'},stdio:['ignore','pipe','pipe']});let browser;
+  try{
+    await new Promise((resolve,reject)=>{let output='';const timer=setTimeout(()=>reject(new Error('Demo server did not start')),20000);server.stdout.on('data',chunk=>{output+=chunk;if(output.includes('LOCAL DEMO ONLY')){clearTimeout(timer);resolve();}});server.stderr.on('data',chunk=>process.stderr.write(chunk));server.once('exit',code=>{clearTimeout(timer);reject(new Error(`Server exited ${code}`));});});
+    browser=await chromium.launch({headless:true,...(process.env.DROPSHOT_BROWSER_CHANNEL?{channel:process.env.DROPSHOT_BROWSER_CHANNEL}:{})});
+    const adminContext=await browser.newContext(),phoneContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
+    const admin=await adminContext.newPage(),phone=await phoneContext.newPage(),live=await phoneContext.newPage();const errors=[];for(const page of [admin,phone,live])page.on('pageerror',e=>errors.push(e.message));
+    await admin.goto(`${url}/__dev/organizer`);await admin.locator('[data-route="teamcup"]').click();await admin.getByRole('button',{name:'Create Team Cup 2026',exact:true}).click();await admin.getByRole('heading',{name:'Teams · 0 / 12 approved'}).waitFor();
+    await phone.goto(`${url}/team-cup-register.html?tournament=${tid}`);await phone.locator('#teamName').fill('Browser Team 1');
+    for(let i=1;i<=4;i++){await phone.locator(`#p${i}_name`).fill(`Browser T1 P${i}`);await phone.locator(`#p${i}_email`).fill(`browser1p${i}@example.test`);await phone.locator(`#p${i}_phone`).fill('07123456789');await phone.locator(`#p${i}_category`).selectOption(i<3?'men':'women');await phone.locator(`#p${i}_shirt`).selectOption('M');}
+    await phone.locator('#teamConsent').check();await phone.locator('#submitTeam').click();await phone.getByRole('heading',{name:'Team registration submitted 🏸',exact:true}).waitFor();
+    for(let n=2;n<=4;n++){const response=await phoneContext.request.post(`${url}/api/team-cup/register`,{headers:{origin:url},data:{tournamentId:tid,teamName:`Browser Team ${n}`,requestKey:randomUUID(),consent:true,members:[1,2,3,4].map(i=>({name:`Browser T${n} P${i}`,email:`browser${n}p${i}@example.test`,phone:'07123456789',category:i<3?'men':'women',shirtSize:'M'}))}});assert.equal(response.status(),201);}
+    await admin.locator('#refreshCup').click();await admin.getByRole('row').filter({hasText:'Browser Team 1'}).getByRole('button',{name:'Approve',exact:true}).click();
+    let cup=await (await adminContext.request.get(`${url}/api/admin/team-cup?tournament=${tid}`)).json();
+    for(const team of cup.teams.filter(t=>t.status!=='confirmed'))assert.equal((await adminContext.request.post(`${url}/api/admin/team-cup/team`,{headers:{origin:url},data:{tournamentId:tid,teamId:team.id,status:'confirmed'}})).status(),200);
+    await admin.locator('#refreshCup').click();await admin.getByText('Registration, groups and stage scoring settings',{exact:true}).click();await admin.locator('#cupGroupCount').selectOption('2');await admin.locator('#cupQualifiers').selectOption('1');
+    let saved=admin.waitForResponse(r=>r.url().endsWith('/api/admin/team-cup/config'));await admin.getByRole('button',{name:'Save Team Cup settings',exact:true}).click();assert.equal((await saved).status(),200);
+    admin.once('dialog',d=>d.accept());await admin.locator('#drawCup').click();await admin.locator('#cupMatchSelect option').first().waitFor({state:'attached'});
+    cup=await (await adminContext.request.get(`${url}/api/admin/team-cup?tournament=${tid}`)).json();const m=cup.matches.find(m=>m.discipline==='MD'),tie=cup.ties.find(t=>t.id===m.tieId);await admin.locator('#cupMatchSelect').selectOption(m.id);
+    for(const side of ['a','b']){const players=cup.teams.find(t=>t.id===tie[side]).members.filter(p=>p.category==='men');for(let i=0;i<2;i++)await admin.locator(`#cupPlayer_${side}_${i}`).selectOption(players[i].id);}
+    await admin.locator('#cupMatchCourt').selectOption('1');saved=admin.waitForResponse(r=>r.url().endsWith('/api/admin/team-cup/match'));await admin.getByRole('button',{name:'Save lineups & court',exact:true}).click();assert.equal((await saved).status(),200);
+    saved=admin.waitForResponse(r=>r.url().endsWith('/api/admin/team-cup/token'));await admin.locator('#generateReferee').click();const token=(await (await saved).json()).token;
+    await phone.goto(`${url}/referee.html#token=${token}`);await phone.getByRole('button',{name:'+1 TEAM A',exact:true}).click();await phone.locator('.cup-score-grid strong').first().getByText('1',{exact:true}).waitFor();
+    assert.ok(await phone.locator('.cup-score-grid button').first().evaluate(el=>el.getBoundingClientRect().height)>=76,'Scoring stylesheet must load');assert.equal(await phone.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);assert.equal(await phone.locator('nav').count(),0);assert.ok(!(await phone.locator('body').innerText()).includes('@example.test'));
+    await live.goto(`${url}/team-cup.html?tournament=${tid}`);await live.locator('.cup-score-small').getByText('1–0',{exact:true}).waitFor();assert.ok(!(await live.locator('body').innerText()).includes('@example.test'));
+    fs.mkdirSync(path.join(root,'test-results'),{recursive:true});await phone.screenshot({path:path.join(root,'test-results/team-cup-referee-mobile.png'),fullPage:true});
+    await phone.getByRole('button',{name:'UNDO',exact:true}).click();await phone.locator('.cup-score-grid strong').first().getByText('0',{exact:true}).waitFor();
+    phone.once('dialog',d=>d.accept());await phone.getByRole('button',{name:'Award Team A',exact:true}).click();await phone.getByText('This match is complete.',{exact:false}).waitFor();assert.equal(await phone.getByRole('button',{name:'+1 TEAM A',exact:true}).isDisabled(),true);
+    assert.equal((await phoneContext.request.get(`${url}/api/admin/team-cup?tournament=${tid}`)).status(),401);
+    admin.once('dialog',d=>d.accept());await admin.locator('#generateReferee').click();await phone.reload();await phone.getByRole('heading',{name:'Referee link unavailable',exact:true}).waitFor();
+    fs.mkdirSync(path.join(root,'test-results'),{recursive:true});await live.screenshot({path:path.join(root,'test-results/team-cup-live-mobile.png'),fullPage:true});await admin.screenshot({path:path.join(root,'test-results/team-cup-admin.png'),fullPage:true});
+    assert.deepEqual(errors,[]);console.log('Team Cup browser passed: captain registration → approval → groups → lineups → phone referee → shared public score → undo/award → revoked link.');
+  }finally{if(browser)await browser.close();server.kill();}
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});
+

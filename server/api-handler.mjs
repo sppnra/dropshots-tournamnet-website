@@ -27,7 +27,25 @@ export function createApiHandler({service,getUser}){
         check(body&&typeof body==='object'&&!Array.isArray(body),'Send a JSON object');
       }
       const db=typeof service==='function'?service():service;
-      if(route==='tournaments'&&method==='GET')return json(await db.catalogue(false,query.tournament||null));
+      if(route==='team-cup'&&method==='GET')return json(await db.teamCup.view(query.tournament));
+      if(route==='team-cup/register'&&method==='POST')return json(await db.teamCup.register(body),201);
+      if(route==='referee'){
+        const token=(request.headers.get('authorization')||'').replace(/^Bearer /,'');
+        const assigned=await db.teamCup.referee(token);
+        if(method==='GET')return json(assigned);
+        if(method==='POST'){check(!body.matchId||body.matchId===assigned.match.id,'Referee link is restricted to its assigned match',403);return json(await db.teamCup.updateMatch({...body,matchId:assigned.match.id},null,token));}
+      }
+      if(route==='admin/team-cup/audit'&&method==='GET')return json(await db.teamCup.auditView(query.match));
+      if(route==='admin/team-cups'&&method==='GET')return json(await db.teamCup.list());
+      if(route==='admin/team-cup'&&method==='GET')return json(await db.teamCup.view(query.tournament,true));
+      if(route==='admin/team-cup/create'&&method==='POST')return json(await db.teamCup.create());
+      if(route==='admin/team-cup/config'&&method==='POST')return json(await db.teamCup.configure(body));
+      if(route==='admin/team-cup/team'&&method==='POST')return json(await db.teamCup.teamStatus({...body,user}));
+      if(route==='admin/team-cup/reset-draw'&&method==='POST')return json(await db.teamCup.resetDraw(body,user));
+      if(route==='admin/team-cup/draw'&&method==='POST')return json(await db.teamCup.draw(body));
+      if(route==='admin/team-cup/match'&&method==='POST')return json(await db.teamCup.updateMatch(body,user));
+      if(route==='admin/team-cup/token'&&method==='POST')return json(await db.teamCup.token(body,user));
+      if(route==='tournaments' &&method==='GET')return json(await db.catalogue(false,query.tournament||null));
       if(route==='capacity'&&method==='GET'){
         check(query.tournament,'Tournament is required');
         const data=await db.catalogue(false,query.tournament);return json({events:data.tournaments[0]?.events||[]});
