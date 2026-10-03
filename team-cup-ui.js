@@ -2,10 +2,10 @@ const cupEscape=(v='')=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&
 const cupNames={MD:'Men’s Doubles',WD:'Women’s Doubles',XD:'Mixed Doubles'};
 const cupTeam=(cup,id)=>cup.teams.find(t=>t.id===id);
 const cupTeamName=(cup,id)=>cupTeam(cup,id)?.name||'Awaiting qualifier';
-const cupPlayers=(team,ids)=>ids.map(id=>team?.members.find(p=>p.id===id)?.name||'Unassigned').join(' / ')||'Lineup not assigned';
+const cupPlayers=(team,ids)=>ids.map(id=>[...(team?.members||[]),...(team?.past_members||[])].find(p=>p.id===id)?.name||'Unassigned').join(' / ')||'Lineup not assigned';
 const cupScore=m=>m.games.map(g=>`${g.a}–${g.b}`).join(' · ');
 async function cupApi(path,body,token){
-  const response=await fetch(`/api/${path}`,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(20000)});
+  const response=await fetch(`/api/${path}`,{method:body?'POST':'GET',credentials:'same-origin',cache:'no-store',headers:{...(body?{'Content-Type':'application/json'}:{}),...(token?{Authorization:`Bearer ${token}`}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(path.startsWith('admin/')?45000:20000)});
   const data=await response.json();if(!response.ok){const error=new Error(data.error||'Request failed');error.status=response.status;throw error;}return data;
 }
 function cupBoard(cup){
@@ -14,7 +14,7 @@ function cupBoard(cup){
   return `<h2>Live now</h2><div class="grid equal">${live.map(card).join('')||'<p>No matches live right now.</p>'}</div>
     ${cup.champion?`<section class="hero card-pad"><div class="eyebrow">Team Cup champion</div><h2>${cupEscape(cupTeamName(cup,cup.champion))}</h2></section>`:''}
     <h2>Group standings</h2>${cup.standings.map(g=>`<section class="card card-pad"><h3>Group ${cupEscape(g.name)}</h3><div class="table-wrap"><table><thead><tr><th>Pos</th><th>Team</th><th>Played</th><th>Won</th><th>Lost</th><th>Matches W</th><th>Matches L</th><th>Diff</th><th>Points diff</th></tr></thead><tbody>${g.rows.map(r=>`<tr><td>${r.position}</td><td>${cupEscape(r.name)}</td><td>${r.played}</td><td>${r.won}</td><td>${r.lost}</td><td>${r.matchesWon}</td><td>${r.matchesLost}</td><td>${r.matchDifference}</td><td>${r.pointDifference}</td></tr>`).join('')}</tbody></table></div></section>`).join('')||'<p>Groups have not been drawn yet.</p>'}
-    <h2>Ties, upcoming fixtures and knockout</h2><div class="grid equal">${cup.ties.map(t=>`<section class="card card-pad"><div class="eyebrow">${cupEscape(t.round)} · ${cupEscape(t.status)}</div><h3>${cupEscape(cupTeamName(cup,t.a))} vs ${t.bye?'Bye':cupEscape(cupTeamName(cup,t.b))}</h3><strong>${t.winsA}–${t.winsB}</strong>${t.winner?`<p>${cupEscape(cupTeamName(cup,t.winner))} ${t.status==='completed'?'wins':'has clinched the tie'}</p>`:''}${t.matchIds.map(id=>{const m=cup.matches.find(m=>m.id===id);return m?`<p>${cupEscape(cupNames[m.discipline])} · Court ${m.court||'—'} · ${cupScore(m)} · ${cupEscape(m.status)}</p>`:'';}).join('')}</section>`).join('')||'<p>Approved teams will appear in the draw.</p>'}</div>`;
+    <h2>Ties, upcoming fixtures and knockout</h2><div class="grid equal">${cup.ties.map(t=>`<section class="card card-pad"><div class="eyebrow">${cupEscape(t.round)} · ${cupEscape(t.status)}</div><h3>${cupEscape(cupTeamName(cup,t.a))} vs ${t.bye?'Bye':cupEscape(cupTeamName(cup,t.b))}</h3><strong>${t.winsA}–${t.winsB}</strong>${t.overrideWinner?'<p>Organizer result override</p>':''}${t.winner?`<p>${cupEscape(cupTeamName(cup,t.winner))} ${t.status==='completed'?'wins':'has clinched the tie'}</p>`:''}${t.matchIds.map(id=>{const m=cup.matches.find(m=>m.id===id);return m?`<p>${cupEscape(cupNames[m.discipline])} · Court ${m.court||'—'} · ${cupScore(m)} · ${cupEscape(m.status)}</p>`:'';}).join('')}</section>`).join('')||'<p>Approved teams will appear in the draw.</p>'}</div>`;
 }
 function cupScorer(data,admin=false){
   const m=data.match,t=data.tie,g=m.games.at(-1),disabled=m.status==='completed'?'disabled':'';

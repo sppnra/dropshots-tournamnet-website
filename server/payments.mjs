@@ -1,11 +1,11 @@
 import {randomUUID} from 'node:crypto';
 import {transaction} from './db.mjs';
 import {check,id,uuid,text,integer,HttpError} from './validation.mjs';
-import {createEmailService} from './email.mjs';
+import {createEmailService,safeEmailReason,logEmailFailure} from './email.mjs';
 import {paymentEmail} from './email-templates.mjs';
 const defaults={bank_account_name:'',bank_name:'',sort_code:'',account_number:'',payment_reference_prefix:'DF',payment_instructions:'',revision:0};
 export class PaymentService {
-  constructor(pool,email=createEmailService()){this.pool=pool;this.email=email;}
+  constructor(pool,email=createEmailService()){this.pool=pool;this.email=email;this.paymentColumn="payment_id";this.paymentTable="registration_payments";}
   async settings(tournamentId){
     id(tournamentId,'tournament');
     return {settings:(await this.pool.query('select * from tournament_payment_settings where tournament_id=$1',[tournamentId])).rows[0]||{...defaults,tournament_id:tournamentId}};
@@ -84,12 +84,15 @@ export class PaymentService {
       }
     });
   }
+  async registrationIdentity(paymentId){return (await this.pool.query('select r.id from registrations r join registration_payments p on p.entry_id=r.entry_id where p.id=$1 order by r.created_at limit 1',[paymentId])).rows[0]?.id||paymentId;}
   async deliver(paymentId,kind='approval'){
     if(!paymentId)return {ok:true};
+    const deadline=Date.now()+30000;
     try{
       await this.queue(paymentId,kind);
-      const jobs=(await this.pool.query('select id from payment_email_outbox where payment_id=$1 and kind=$2 order by id',[paymentId,kind])).rows;
+      const jobs=(await this.pool.query(`select id from payment_email_outbox where ${this.paymentColumn}=$1 and kind=$2 order by id`,[paymentId,kind])).rows;
       for(const {id:jobId} of jobs){
+        if(Date.now()>deadline)break; // Leave unsent recipients queued for explicit retry, below Netlify's execution limit.
         const job=await transaction(this.pool,async c=>{
           const j=(await c.query('select * from payment_email_outbox where id=$1 for update',[jobId])).rows[0];
           if(j.status==='sent')return null;
@@ -108,17 +111,17 @@ export class PaymentService {
           const result=await this.email.send(job.payload,job.id);
           await this.pool.query("update payment_email_outbox set status='sent',sent_at=now(),provider_message_id=$2,last_error=null where id=$1",[job.id,result.messageId]);
         }catch(error){
-          await this.pool.query('update payment_email_outbox set status=$2,last_error=$3 where id=$1',[job.id,error.uncertain?'uncertain':'failed',error.message==='Save complete tournament bank details, then retry the approval email.'?error.message:'Email not sent. Check email configuration and provider logs, then retry.']);
-          console.warn('Payment email attempt failed',{payment_id:paymentId,kind,outcome:error.uncertain?'uncertain':'failed'});
+          await this.pool.query('update payment_email_outbox set status=$2,last_error=$3 where id=$1',[job.id,error.uncertain?'uncertain':'failed',safeEmailReason(error)]);
+          logEmailFailure(error,{...this.email.configuration?.(),email_type:kind,registration_id:await this.registrationIdentity(paymentId).catch(()=>paymentId),recipient:job.recipient,outcome:error.uncertain?'uncertain':'failed'});
         }
       }
-      const pending=(await this.pool.query("select count(*)::integer as n from payment_email_outbox where payment_id=$1 and kind=$2 and status<>'sent'",[paymentId,kind])).rows[0].n;
-      if(pending)return {ok:true,warning:kind==='approval'?'Registration approved, but confirmation email could not be sent to every player. Check Details and retry.':'Payment received, but confirmation email failed or is still sending. Check Details and retry.'};
-      if(jobs.length)await this.pool.query(`update registration_payments set ${kind==='approval'?'approval_email_sent_at':'payment_email_sent_at'}=coalesce(${kind==='approval'?'approval_email_sent_at':'payment_email_sent_at'},now()) where id=$1`,[paymentId]);
+      const pending=(await this.pool.query(`select count(*)::integer as n from payment_email_outbox where ${this.paymentColumn}=$1 and kind=$2 and status<>'sent'`,[paymentId,kind])).rows[0].n;
+      if(pending){const reasons=(await this.pool.query(`select distinct last_error from payment_email_outbox where ${this.paymentColumn}=$1 and kind=$2 and status<>'sent'`,[paymentId,kind])).rows.map(r=>r.last_error).filter(Boolean).join(' ');return {ok:true,warning:(kind==='approval'?'Registration approved, but confirmation email could not be sent to every player. Check Details and retry.':'Payment received, but confirmation email failed or is still sending. Check Details and retry.')+' Reason: '+(reasons||'Some recipients remain queued or sending. Click Retry to continue after the current attempt finishes.')};}
+      if(jobs.length)await this.pool.query(`update ${this.paymentTable} set ${kind==='approval'?'approval_email_sent_at':'payment_email_sent_at'}=coalesce(${kind==='approval'?'approval_email_sent_at':'payment_email_sent_at'},now()) where id=$1`,[paymentId]);
       return {ok:true};
     }catch(error){
-      console.warn('Payment email preparation failed',{payment_id:paymentId,kind,code:error.code||'EMAIL_SETUP',reason:error instanceof HttpError?error.message:'Email preparation unavailable'});
-      return {ok:true,warning:kind==='approval'?'Registration approved, but confirmation email could not be sent. Check bank details and email setup, then retry.':'Payment received, but confirmation email failed. Check email setup, then retry.'};
+      logEmailFailure(error,{...this.email.configuration?.(),email_type:kind,registration_id:await this.registrationIdentity(paymentId).catch(()=>paymentId),recipient:null,stage:'preparation'});
+      return {ok:true,warning:(kind==='approval'?'Registration approved, but confirmation email could not be sent.':'Payment received, but confirmation email failed.')+' Reason: '+safeEmailReason(error)};
     }
   }
   async stats(tournamentId){

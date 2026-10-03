@@ -10,12 +10,12 @@ test('Team Cup registration, secure shared scoring, groups and knockout complete
   const request=(route,data,token)=>new Request('http://localhost/api/'+route,{method:data?'POST':'GET',headers:{...(data?{origin:'http://localhost','content-type':'application/json'}:{}),...(token?{authorization:`Bearer ${token}`}:{})},body:data?JSON.stringify(data):undefined});
   let s,first,token;
   await t.test('real preset, four-player registration, approval limit and public contact privacy',async()=>{
-    s=await view();assert.equal(s.name,'Dropshot Folks Badminton Team Cup 2026');assert.equal(s.config.capacity,12);assert.equal(s.config.fee_per_person,22);assert.equal(s.event_date,'2026-10-18');
+    s=await view();assert.equal(s.name,'Dropshot Folks Badminton Team Cup 2026');assert.equal(s.config.capacity,18);s.config.capacity=12;await service.configure({tournamentId:tid,version:s.version,config:s.config});assert.equal(s.config.fee_per_person,22);assert.equal(s.event_date,'2026-10-18');
     const input=body(1);const r=await service.register(input);assert.equal(r.team.status,'pending');assert.equal((await service.register(input)).team.id,r.team.id);
     await assert.rejects(service.register({...body(100),members:body(100).members.slice(0,3)}),/four/);
     await service.teamStatus({tournamentId:tid,teamId:r.team.id,status:'confirmed',user:organizer});
     for(let n=2;n<=12;n++){const r=await service.register(body(n));await service.teamStatus({tournamentId:tid,teamId:r.team.id,status:'confirmed',user:organizer});}
-    const extra=await service.register(body(13));assert.equal(extra.team.status,'waitlisted');await assert.rejects(service.teamStatus({tournamentId:tid,teamId:extra.team.id,status:'confirmed'}),/Twelve/);
+    const extra=await service.register(body(13));assert.equal(extra.team.status,'waitlisted');await assert.rejects(service.teamStatus({tournamentId:tid,teamId:extra.team.id,status:'confirmed'}),/Capacity 12/);
     const publicData=JSON.stringify(await service.view(tid));for(const secret of ['@example.test','07123456789','shirt_size','category','request_key','referee_token','sort_code'])assert.ok(!publicData.includes(secret),secret);
   });
   await t.test('groups create exactly three discipline matches per tie',async()=>{

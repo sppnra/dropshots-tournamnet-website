@@ -1,86 +1,76 @@
-# Team Cup beta — deployment and tournament-day guide
+# Team Cup beta — corrected admin, capacity and payment flow
 
-This extends the existing Netlify app. The Team Cup preset uses the **written request's 12-team limit**, rather than the poster's 18 slots:
+The current 2026 event has **18 Team Slots**, four players by default and £22 per person (£88 per team). Date: 18 October 2026, 09:00–16:00 Europe/London. Venue: Westminster City School, 55 Palace Street, London SW1E 5HJ. Registration closes at the end of 13 October. These settings are editable in the Team Cup dashboard; 18 is a preset, not a validation limit for future tournaments.
 
-- Dropshot Folks Badminton Team Cup 2026
-- Sunday 18 October 2026, 09:00–16:00 (London)
-- Westminster City School, 55 Palace Street, London SW1E 5HJ
-- Up to 12 approved teams, 4 players each
-- £22 per person, £88 per team; free T-shirts
-- Registration closes at the end of 13 October 2026, Europe/London
-- Every actual tie has exactly MD, WD and XD (Men’s, Women’s and Mixed Doubles)
+## Deploy this update
 
-## Deploy the complete updated repository
+1. Extract the complete ZIP and commit/upload all contents to the root of the GitHub repository connected to your existing Netlify site. Include scripts/, server/, tests/, netlify/functions/ and all **four** migrations. Do not upload only frontend files.
+2. Keep your existing site, Database and Identity users. Build command: `npm run build`; publish: `dist`; Functions: `netlify/functions`; Node: 22.12 or newer.
+3. Redeploy. New additive migration `202610030004_cup_admin_payments.sql` changes only the known 2026 preset's old capacity of 12 to 18, preserves other capacities/results/rosters/tokens, permits reserve members and adds private Team Cup payment records to the existing durable email outbox. Do not recreate the database or manually rerun previously applied migrations.
+4. In Netlify environment variables configure **Functions-scoped** `EMAIL_API_KEY` (Brevo API key, not SMTP key), `EMAIL_FROM` (plain verified email address), optional `EMAIL_REPLY_TO`. Never put these in config.js, browser scripts or a public repository. Redeploy after changing variables.
+5. In Brevo register and verify the exact sender used by EMAIL_FROM, and check that transactional sending is enabled and your quota is available. Official guidance: https://developers.brevo.com/docs/send-a-transactional-email and https://developers.brevo.com/docs/api-key-authentication.
+6. Sign in through the standard Registrations screen using an Identity **organizer or admin** role, then open **Team Cup β**. Existing events/results remain in place. The corrected capacity should be visible without republishing/resetting the draw.
+7. Open **Bank details and email diagnostics (private)**. Save the tournament's account name, optional bank name, six-digit sort code, eight-digit account number and reference prefix. Click **Check email configuration / verified sender** to inspect configuration and Brevo sender status without exposing the key.
 
-1. Export a backup of your existing standard tournament browser data before updating the site.
-2. Extract the new ZIP into its own folder. Upload/commit **all contents** at your GitHub repository root, including scripts, server, tests, netlify/functions and all three netlify/database/migrations files. Do not upload only the top-level frontend.
-3. Keep the existing Netlify project, Database, Identity users and organizer roles. Build command: `npm run build`; publish directory: `dist`; Functions directory: `netlify/functions`; Node 22.12+.
-4. Redeploy. Netlify applies the new additive `202609300003_team_cup.sql` migration before publishing. Do not recreate your database or rerun the original create-table migration manually. Existing standard registration and payment tables remain intact.
-5. No new environment variable, account, database, email provider or payment gateway is needed for Team Cup. Keep your existing payment-email variables for standard registrations. This beta does not automatically invoice/send approval emails for four-player Cup teams; its £88 fee is displayed for organizer-managed collection. Existing standard payment/email functionality remains available.
-6. Confirm all new pages were built: team-cup-admin.html, team-cup-register.html, team-cup.html, referee.html and their JavaScript assets. No live deployment or real referee links are created merely by extracting this ZIP.
+No live deployment, sender verification, API-key inspection or real email delivery was performed by the local tests. An accepted message may still bounce; inspect Brevo transactional logs for inbox delivery.
 
-## Create this real tournament
+## Create and run the 2026 event
 
-1. Open the existing organizer site and sign in on **Registrations** with your Netlify Identity organizer account.
-2. Click **Team Cup β** in the sidebar. It opens the dedicated operational dashboard using the same authenticated session.
-3. Click **Create Team Cup 2026** once. It creates central tournament ID `t_team_cup_2026` with the real date/venue/settings. Clicking again does not reset it. This does not overwrite your standard local tournament.
-4. Share the **Team registration** link: `https://comforting-choux-1c87b3.netlify.app/team-cup-register.html?tournament=t_team_cup_2026`.
-5. A captain supplies four names, emails, phones, category eligibility and T-shirt sizes, and confirms permission to provide those details. Two men’s-category and two women’s-category players are required for the fixed disciplines; eligibility is self-declared and should be checked by the organizer. All four emails must be distinct. Position 1 is the captain. Team names and players cannot duplicate active team registrations.
-6. Review pending teams on the dashboard. Approve, waitlist or reject before drawing. Only approved teams enter the draw; approval capacity is 12. Pending teams do not reserve slots. Withdrawals preserve records.
-7. Open **Registration, groups and stage scoring settings**. Choose 2, 3 or 4 groups, qualifiers per group, courts, stage rules and optional third-place playoff. Default is 3 groups × 4 teams, top 2 each, group 1 × 21, later rounds best of 3 × 21.
-8. With six qualifiers, two top-ranked group winners receive byes in a quarter-final round. Winners then reach the semi-finals and final. Four qualifiers start in semi-finals; two start in the final; three use a semi-final bye. Up to eight qualifiers are supported. Each group needs at least two teams and enough teams for its selected qualifier count.
-9. Choose each approved team's group in the Teams table, then click **Generate groups / round robin**. The default distribution is balanced round-robin assignment; you can edit it before generating. Drawing closes registration and locks group count/roster. **Clear unstarted draw** can correct setup before scores exist (or after all affected scores have been undone); it preserves teams/audit but revokes the old match links.
+For an existing event, do not create a replacement or reset its draw. For a new installation, click **Create Team Cup 2026**. Its stable ID is `t_team_cup_2026`; clicking create again does not reset existing data.
 
-## Lineups, courts and referee links
+Team registration: `https://comforting-choux-1c87b3.netlify.app/team-cup-register.html?tournament=t_team_cup_2026`.
 
-1. Select a discipline match in **Match operations / referee links**.
-2. Assign two players per side from the correct team. MD requires two men’s-category players; WD two women’s-category players; XD one of each. Mixed can reuse players from MD/WD, but those players cannot be in two live matches at once.
-3. Select a court and click **Save lineups & court**. A referee cannot start scoring until both lineups and a court exist. Three matches need not run simultaneously. The server blocks a second live match on the same court or involving the same player.
-4. Click **Generate referee link**, then **Copy referee link**. Send the copied link yourself through WhatsApp. The app does not automate messaging.
-5. Links use `https://SITE.netlify.app/referee.html#token=SECURE_RANDOM_TOKEN`. The token is in the fragment so it is not sent in normal page requests/referrers. The referee page also accepts `referee.html?token=...` for compatibility, but generated links use fragments.
-6. **Regenerate** invalidates the old token immediately. **Disable link** removes its scoring/read access. Tokens remain private in Netlify Database and organizer responses; public board APIs contain none.
-7. Completed matches are read-only to referees. Organizer controls retain Undo, score correction, Award, Walkover, court movement and token management. Lineups are locked after play starts; undo to the beginning before changing them. Corrections affecting downstream results require undoing those downstream scores first. Audit events are retained; use **View audit trail** for the selected match.
+The captain submits the configured number of players with names, emails, phones, shirts and category eligibility. At least two men's-category and two women's-category players are needed for MD/WD/XD. Position 1 is captain. All player emails must be distinct; active duplicate players require a reasoned admin override. Pending teams do not reserve approved capacity. The page displays the configured slot count and approved count; when approved capacity is full, another submission is waitlisted only if automatic waitlisting is enabled, otherwise rejected with a clear capacity message. Waitlisted teams cannot score until approved and assigned to the competition.
 
-## Test a link from your phone
+Choose format (groups + knockout, single round robin + knockout, or direct knockout), group count, qualifiers, courts and scoring rules, then approve teams and generate fixtures. Group assignments are editable before drawing. Team seeds influence default draw ordering; explicit group selections take precedence. Every actual tie has MD, WD and XD. Rules support 11/15/21 points and one game/best of three. All three discipline matches normally finish before progression; two wins clinch the tie.
 
-Before tournament day, use test teams/draws and the local demo, or clearly marked test teams on a separate Netlify test project. Do not mix test results into the real event.
+## Full organizer/admin controls
 
-1. On your laptop assign a match's court/lineups and generate a referee link.
-2. Open the copied link on a phone in a private browser window. No Identity/admin login is needed. Expect only the assigned match, court, discipline, player names, current game and large buttons.
-3. Press +1 TEAM A; check the organizer and public board show the same point within their refresh interval. Press Undo; expect the previous game state to return.
-4. Open a second phone/tab and try a stale score action. The server returns a conflict and refreshes the scorer, instead of silently overwriting.
-5. Award a test match after confirmation; expect the referee buttons disabled/read-only. Regenerate or disable its token on the laptop; the old link must then say unavailable.
-6. Public and referee APIs must not show player email/phone, shirts, bank details, organizer menus or other referee tokens. Opening `/api/admin/team-cup?tournament=t_team_cup_2026` while logged out must return 401.
+Both Identity roles have the same management permission. Public users can only register/read public data. Referee tokens can only score their assigned unfinished match; organizer-only controls cannot be invoked through a token.
 
-## Public live scores, standings and results
+- Settings: tournament name/date, start/end time, venue, capacity, registration closing/open status, automatic waitlist, team size (4–20 including reserves), fee per person, member-email option, format, groups (1–8), qualifiers (up to 32 total), stage rules and courts.
+- Teams: approve, pending, waitlist, reject, withdraw; capacity override; edit name/player details/eligibility/shirts, replace/remove/add players, choose captain and set seed. Team size changes affect new registrations. Roster changes do not silently recalculate already approved charges.
+- Match operations: lineups (including a confirmed eligibility override), court movement, start, point, undo, award, walkover, current-game correction, all-game score correction, reopen/reset completed match and generate/regenerate/disable referee links.
+- Dedicated overrides: move a team between drawn groups, create/edit/delete group fixtures, correct a tie winner and manually insert/advance a team into a knockout slot.
+- Payments: private bank settings, mark received, retry approval/receipt, correct amount due, reopen as pending.
 
-Share `https://comforting-choux-1c87b3.netlify.app/team-cup.html?tournament=t_team_cup_2026`.
+Changing started/completed data requires a confirmation and reason. Audit entries record the trusted Identity actor. Draw/format resets retain a private before-state snapshot and revoke affected match links. Moving a group team resets that team's group fixtures and the knockout; unrelated group scores remain. Score/result changes reset affected downstream matches when explicitly overridden; do not perform these casually during play. A manual tie winner is labeled as an organizer override publicly and need not rewrite all individual scores.
 
-The public page shows live courts, scores, group standings, ties, upcoming knockout slots and the champion. It reads the same central Database through Netlify Functions. Organizer refresh is every 3 seconds; public and referee idle refresh are every 5 seconds. Hidden pages pause polling; mutations are sent only on button presses. No WebSockets/realtime service is added. Public boards show a freshness timestamp and a connection-loss warning rather than silently presenting stale scores as current.
+Removing a player clears affected unfinished lineups, requiring organizer reassignment; completed lineup names remain available through a names-only archive. Started lineup changes require confirmation. Withdrawal awards unfinished matches as walkovers and preserves completed results. For late approved teams, use group/fixture or knockout overrides to put them into the existing competition.
 
-A tie is clinched at two discipline wins, but **all three disciplines must finish** before the tie is complete, standings tie wins update and winners progress. This preserves individual-match/point differences. Ranking is tie wins, individual-match difference, then point difference; exact remaining ties use team name/ID deterministically. Live points and completed individual matches appear in standings during a tie. Award/walkover results count match wins without inventing point scores. Group qualifiers populate knockout automatically once every group tie is complete. Semi-final losers populate third place if enabled.
+## Approval and payment emails
 
-## Storage boundary and beta limitations
+Save bank details before approving. **Approve** commits confirmed registration and one payment snapshot/reference, then sends payment instructions to the captain. The default four-player event creates **Pending / £88**. Instructions contain tournament/team names, all member names, date/venue, per-person fee, team size/total, bank details and the stable unique payment reference. Enable **Email team members as well as captain** to send separate private messages to each member for subsequent emails.
 
-- **Netlify Database:** Team Cup metadata/settings, team/member registrations, categories/shirts/contacts, groups/ties, discipline matches, lineups/courts, game scores, match versions, referee tokens and score audit events. Referees and spectators do not need localStorage to see scores.
-- **localStorage:** Existing standard tournament engine, standard draws/scores/seeds, local roster bridge and ordinary organizer navigation. Standard registration/payment data remain centrally stored as before.
-- Team Cup is a dedicated mode; four-player teams do not enter the existing singles/doubles Entries screen. Standard tournament controls and payment emails are separate and unchanged.
-- Fixed four-player/three-discipline beta, maximum 12 approved teams and 8 qualifiers. No captain accounts, captain lineup edits, advanced tie-breakers, scheduled court times, messaging automation or video.
-- Group count/roster are frozen after drawing. Withdrawing a drawn team awards its unfinished matches to its opponents as audited walkovers. Prior completed results remain intact. Withdrawn teams are excluded from qualification. If a group lacks enough active teams, progression pauses with a warning; reduce qualifiers before knockout. There is no replacement-team substitution or automatic redraw of a started competition.
-- Stage-rule changes update pending matches only; live/completed matches keep their scoring snapshot. Score versions prevent stale writes; a per-Cup transaction lock makes tie/bracket updates consistent. Only changed match rows are written per scoring action.
-- A referee link is a bearer capability: anyone you share it with can score that match until revoked. Do not post it publicly. Organizer routes still require Identity roles and same-origin JSON mutations. Tokens are random 256-bit values, checked by hash; raw copies are only available to authenticated organizers.
-- Polling/Functions/Database still consume Netlify plan quotas. No paid-only feature or external realtime provider is added, but a free-plan quota may pause the site. The API rate cap allows multiple phones behind one venue Wi-Fi IP; use the public board only where needed and close unused tabs.
-- This delivery is locally tested. Native Netlify Identity, migration application, phone connectivity and real multi-device deployment still need the acceptance test above on your site.
+**Mark payment received** commits Paid, the received timestamp and Identity actor, then sends the receipt. Repeated approval, paid marking and retry do not duplicate sent emails. Definite failures can be retried; uncertain sends outside the deduplication window require checking provider logs instead of a blind resend.
+
+Email failure never undoes approval or payment. The dashboard shows the provider/configuration reason and each email's status. Fix the problem and use **Retry approval email** or **Retry receipt**. For teams approved on the older beta, click **Initialize payment / instructions** on the existing confirmed team to initialize its payment record and instructions, or mark it received if it has already paid. The migration does not automatically bill or email old teams.
+
+Correcting an amount does not rewrite previously sent mail. Reopening a paid record preserves its reference and sent-mail history. Do not resend old pending instructions after the payment has been recorded.
+
+Server logs identify email type, registration/team ID, recipient, provider HTTP status/reason, API-key presence and configured sender. They never log the key, passwords or bank account numbers. Protected `GET /api/admin/email-diagnostic` checks environment/sender configuration; it sends no email and returns no secrets.
+
+## Referee phone and public acceptance test
+
+1. Select a discipline match, assign two players per side and a court, then save. Generate/copy its referee link: `https://SITE.netlify.app/referee.html#token=SECURE_TOKEN`. Send it yourself to the referee. Regeneration and disabling invalidate old links.
+2. Open the link on a phone in a private browser window. No Identity login is needed. Only the assigned match and its lineup names should appear, with large scoring buttons. Add a point, then Undo.
+3. Confirm the organizer and public live board show the same scores. A stale concurrent mutation must refresh with a conflict instead of overwriting. Award a test match; completed referee links are read-only. Regenerate/disable and verify old access stops.
+4. On a separate test site register a team, approve it, check Confirmed/Pending/£88 and captain instructions in Brevo, mark paid, and check timestamp/receipt. Check public pages contain no phone/email/bank data/tokens. Logged-out admin routes must return 401; a signed-in user without organizer/admin role must return 403.
+
+Public board: `https://comforting-choux-1c87b3.netlify.app/team-cup.html?tournament=t_team_cup_2026`. It shows courts, scores, group standings, fixtures, knockout and champion. Organizer refresh: 3 seconds; public and referee idle refresh: 5 seconds. Hidden tabs pause polling. No paid realtime service is used. Free plan Functions/Database/email quotas still apply.
+
+## Storage and remaining boundaries
+
+Team Cup metadata/settings, registrations/member contacts, groups/ties, lineups/courts, shared scores, versions, referee links, audits, bank settings, payment snapshots and email delivery records use Netlify Database through Functions. Existing standard tournament draws/scores and its navigation/roster bridge still use localStorage; standard registration/payment data remain centrally stored.
+
+The disciplines remain fixed MD/WD/XD. The roster minimum is four to cover the categories; reserves are supported up to 20. Group/direct knockout qualification supports up to 32 teams; use groups for larger registration capacities. Exact ranking ties still use team name/ID after tie wins, match difference and point difference. No captain accounts, messaging automation or background email scheduler is added. Retries are explicit. Email delivery stops attempting additional recipients after a 30-second request budget; unfinished recipients remain queued for retry, allowing larger reserve rosters to stay within the Netlify Function limit. Netlify/Brevo real deployment and phone connectivity must be tested on your account.
 
 ## Files changed and added
 
-Changed: `app.js`, `index.html`, `styles.css`, `scoring-core.js` integration, `server/registration-service.mjs`, `server/api-handler.mjs`, `netlify/functions/registration-api.mjs`, `netlify.toml`, `scripts/build.cjs`, `scripts/package.py`, `scripts/verify-clean.cjs`, `tests/helpers.cjs`, `tests/browser-smoke.cjs`, `package.json`, `README.md`, `ARCHITECTURE.md`.
+Changed: server/team-cup.mjs, server/team-cup-engine.mjs, server/registration-service.mjs, server/api-handler.mjs, server/payments.mjs, server/email.mjs, server/email-templates.mjs, team-cup-admin.js, team-cup-register.js, team-cup-ui.js, tests/team-cup.test.cjs, tests/team-cup-browser.cjs, README.md, ARCHITECTURE.md, this guide.
 
-Added: `scoring-core.js`, `server/team-cup.mjs`, `server/team-cup-engine.mjs`, `netlify/database/migrations/202609300003_team_cup.sql`, `team-cup-admin.html`, `team-cup-admin.js`, `team-cup-register.html`, `team-cup-register.js`, `team-cup.html`, `team-cup-live.js`, `team-cup-ui.js`, `referee.html`, `referee.js`, `tests/team-cup.test.cjs`, `tests/team-cup-browser.cjs`, this guide.
+Added: server/cup-payments.mjs, netlify/database/migrations/202610030004_cup_admin_payments.sql, tests/cup-corrections.test.cjs.
 
-The scoring core shares the existing two-point lead and cap rules with standard mode. No package dependency is added. The Cup tables use normalized teams/members/matches/tokens/audit plus a small versioned JSON document for group/tie structure, avoiding a generic tournament-framework rewrite.
+Verification commands: npm test; npm run build; npm run test:browser; npm run test:team-cup-browser. Browser tests use Playwright Chromium (or DROPSHOT_BROWSER_CHANNEL=msedge). Tests use fake email adapters and never send real mail.
 
-Run `npm test`, `npm run build`, `npm run test:browser`, and `npm run test:team-cup-browser` (after `npx playwright install chromium`, or using the available Edge channel). Tests cover all three disciplines, invalid/scoped/revoked tokens, point/undo, completed tie standings, 2/3/4 group qualification, byes, semifinal/final/third place, public privacy, stale writes, court/player overlap, pre-knockout corrections and standard mode regression.
-
-Verification: clean installation, all 48 automated tests and production build passed. Standard registration/payment browser checks and Team Cup mobile/browser flow passed; the mobile test also checks stylesheet loading and button size. Live Netlify deployment remains to be verified.
-
+Verification: all 54 automated tests, fresh npm installation/production build, standard registration/payment browser flow and Team Cup registration/roster/payment/referee/public browser flow passed locally.

@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 export const disciplines=['MD','WD','XD'];
 export const disciplineNames={MD:"Men’s Doubles",WD:"Women’s Doubles",XD:'Mixed Doubles'};
-export function newCup(){return {config:{registration_enabled:true,registration_close:'2026-10-13',capacity:12,courts:4,groupCount:3,qualifiers:2,thirdPlace:false,
+export function newCup(){return {config:{registration_enabled:true,registration_close:'2026-10-13',capacity:18,auto_waitlist:true,email_members:false,format:"groups",start_time:"09:00",end_time:"16:00",courts:4,groupCount:3,qualifiers:2,thirdPlace:false,
   fee_per_person:22,team_size:4,time:'09:00–16:00',rules:{group:{points:21,bestOf:1},quarter:{points:21,bestOf:3},semi:{points:21,bestOf:3},final:{points:21,bestOf:3}}},groups:[],ties:[],knockout:false};}
 export function newTie(cup,matches,options){
   const tie={id:randomUUID(),status:'pending',winner:null,winsA:0,winsB:0,matchIds:[],...options};cup.ties.push(tie);return tie;
@@ -12,6 +12,7 @@ export function fillMatches(cup,tie,matches){
   for(const discipline of disciplines){const m={id:randomUUID(),tieId:tie.id,discipline,version:0,status:'pending',winner:null,court:null,lineup:{a:[],b:[]},rule:structuredClone(rule),games:[{a:0,b:0,complete:false}]};tie.matchIds.push(m.id);matches.push(m);}
 }
 export function tieResult(tie,matches){
+  if(tie.overrideWinner){tie.status='completed';tie.winner=tie.overrideWinner;return;}
   if(tie.bye){tie.status='completed';tie.winner=tie.a;return;}
   const ms=matches.filter(m=>tie.matchIds.includes(m.id));tie.winsA=ms.filter(m=>m.winner==='a').length;tie.winsB=ms.filter(m=>m.winner==='b').length;
   tie.winner=tie.winsA>=2?tie.a:tie.winsB>=2?tie.b:null;
@@ -38,6 +39,9 @@ export function standings(cup,teams,matches){
 function knockout(cup,teams,matches){
   const tables=standings(cup,teams,matches).map(g=>({...g,rows:g.rows.filter(r=>teams.some(t=>t.id===r.id&&t.status==='confirmed'))})),qualified=[];
   for(let rank=0;rank<cup.config.qualifiers;rank++)for(const group of tables)qualified.push({id:group.rows[rank].id,group:group.id});
+  createKnockout(cup,matches,qualified);
+}
+export function createKnockout(cup,matches,qualified){
   let size=2;while(size<qualified.length)size*=2;
   // Highest group ranks receive byes; pair others across groups where possible.
   const byes=size-qualified.length,seeds=qualified.slice(),pairs=[];
@@ -45,9 +49,9 @@ function knockout(cup,teams,matches){
   while(seeds.length){const a=seeds.shift();let j=seeds.findLastIndex(b=>b.group!==a.group);if(j<0)j=seeds.length-1;pairs.push([a,seeds.splice(j,1)[0]]);}
   // Split bye recipients across bracket halves.
   if(pairs.length===4&&byes===2)[pairs[1],pairs[2]]=[pairs[2],pairs[1]];
-  let round=pairs.map(([a,b])=>newTie(cup,matches,{phase:'knockout',round:size===8?'Quarter-final':size===4?'Semi-final':'Final',size,a:a.id,b:b?.id||null,bye:!b}));
+  let round=pairs.map(([a,b])=>newTie(cup,matches,{phase:'knockout',round:size>8?`Round of ${size}`:size===8?'Quarter-final':size===4?'Semi-final':'Final',size,a:a.id,b:b?.id||null,bye:!b}));
   round.forEach(t=>fillMatches(cup,t,matches));
-  while(round.length>1){size/=2;const next=[];for(let i=0;i<round.length;i+=2)next.push(newTie(cup,matches,{phase:'knockout',round:size===4?'Semi-final':'Final',size,a:null,b:null,feederA:round[i].id,feederB:round[i+1].id}));round=next;}
+  while(round.length>1){size/=2;const next=[];for(let i=0;i<round.length;i+=2)next.push(newTie(cup,matches,{phase:'knockout',round:size===8?'Quarter-final':size>8?`Round of ${size}`:size===4?'Semi-final':'Final',size,a:null,b:null,feederA:round[i].id,feederB:round[i+1].id}));round=next;}
   cup.knockout=true;
 }
 export function progress(cup,teams,matches){
@@ -55,7 +59,7 @@ export function progress(cup,teams,matches){
   const groups=cup.ties.filter(t=>t.phase==='group');
   if(!cup.knockout&&groups.length&&groups.every(t=>t.status==='completed'))knockout(cup,teams,matches);
   for(const tie of cup.ties.filter(t=>t.phase==='knockout')){
-    for(const side of ['a','b']){const feeder=cup.ties.find(t=>t.id===tie[side==='a'?'feederA':'feederB']);if(feeder)tie[side]=feeder.status==='completed'?feeder.winner:null;}
+    for(const side of ['a','b']){const feeder=cup.ties.find(t=>t.id===tie[side==='a'?'feederA':'feederB']);if(tie.manualSides?.[side])tie[side]=tie.manualSides[side];else if(feeder)tie[side]=feeder.status==='completed'?feeder.winner:null;}
     fillMatches(cup,tie,matches);tieResult(tie,matches);
   }
   const semis=cup.ties.filter(t=>t.round==='Semi-final');

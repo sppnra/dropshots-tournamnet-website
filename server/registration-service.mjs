@@ -20,7 +20,7 @@ const registrationJoins=`from registrations r join events e on e.id=r.event_id j
   left join team_members tm2 on tm2.team_id=r.team_id and tm2.player_id<>r.player_id left join players member2 on member2.id=tm2.player_id`;
 
 export class RegistrationService {
-  constructor(pool,email){this.pool=pool;this.payments=new PaymentService(pool,email);this.teamCup=new TeamCupService(pool);}
+  constructor(pool,email){this.pool=pool;this.payments=new PaymentService(pool,email);this.teamCup=new TeamCupService(pool,email);}
   async diagnostics(tournamentId){
     id(tournamentId,'tournament');
     const tournament=(await this.pool.query("select id,name,event_date::text,venue,published,revision from tournaments where id=$1",[tournamentId])).rows[0]||null;

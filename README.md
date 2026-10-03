@@ -4,7 +4,7 @@ This is the complete project, extending the existing HTML/CSS/JavaScript tournam
 
 ## Team Cup beta
 
-The complete project now includes the 18 October 2026 **Badminton Team Cup** preset: 12 teams of four, captain registration, MD/WD/XD ties, shared live scores, secure referee links, groups and knockout. Open **Team Cup β** in the organizer sidebar after signing in. Read [TEAM-CUP-BETA.md](TEAM-CUP-BETA.md) for exact deployment, creation, lineup/referee/phone testing steps, storage boundaries and limitations. Team Cup is centrally stored; standard-mode draws and scores still stay in localStorage. The written 12-team limit takes priority over the poster's 18 slots.
+The complete project now includes the 18 October 2026 **Badminton Team Cup** preset: 18 configurable team slots (four players by default), captain registration, MD/WD/XD ties, shared live scores, secure referee links, groups and knockout. Open **Team Cup β** in the organizer sidebar after signing in. Read [TEAM-CUP-BETA.md](TEAM-CUP-BETA.md) for exact deployment, creation, lineup/referee/phone testing steps, storage boundaries and limitations. Team Cup is centrally stored; standard-mode draws and scores still stay in localStorage. Both organizer/admin roles have audited overrides and Team Cup captain payment emails. The capacity remains editable; this preset is corrected to 18.
 
 ## What is included
 
@@ -47,7 +47,7 @@ No email provider package is installed. `server/email.mjs` calls Brevo's transac
    | `EMAIL_REPLY_TO` | Optional organizer mailbox for player replies |
 
    Include the **Functions** scope (or All scopes if that is the available option), and set the Production context. Mark the API key secret if Netlify offers that option. Never put these values in `config.js`, `netlify.toml`, a frontend file or GitHub. [Netlify Function environment variables](https://docs.netlify.com/build/functions/environment-variables/)
-5. Upload/commit the complete updated repository, including `server/` and **both** SQL migrations. Keep `npm run build`, `dist`, and `netlify/functions` as before. Redeploy after setting the variables. The native Database migration adds the payment tables automatically; do not recreate your database or rerun the original create-table migration manually.
+5. Upload/commit the complete updated repository, including `server/` and **all four** SQL migrations. Keep `npm run build`, `dist`, and `netlify/functions` as before. Redeploy after setting the variables. The native Database migration adds the payment tables automatically; do not recreate your database or rerun the original create-table migration manually.
 6. Sign in with the existing organizer Identity role. Publish a paid event, save bank details, and run the live test below.
 
 Your website can stay on `https://comforting-choux-1c87b3.netlify.app/`. The website domain and email sender are separate. You cannot authenticate `netlify.app`, Gmail or Yahoo as an email domain you own. Brevo allows mailbox-code sender verification, but recommends a domain you control for reliable deliverability; free-address senders may be rewritten, filtered or rejected. Check Brevo logs and spam folders in your tests. No custom-domain purchase is required by the code or for initial mailbox tests; guaranteed inbox delivery is not promised. [Brevo sending-domain guidance](https://help.brevo.com/hc/en-us/articles/35852083084178-Domain-setup-for-better-email-deliverability)
@@ -263,3 +263,5 @@ New: `server/payments.mjs`, `server/email.mjs`, `server/email-templates.mjs`, `n
 `package.json`, npm/pnpm locks, `netlify.toml`, Identity client and the original migration are retained. No email SDK/dependency is added. The complete source ZIP contains all original frontend, backend, scripts, tests, Netlify Functions and migrations folders; it excludes node_modules, generated dist, local caches, screenshots and private environment files.
 
 Verification for this release: clean npm install, all 36 automated tests and npm run build passed. The Edge/Playwright browser flow passed with injected local email previews, including both registration URL forms, public privacy, roster import, private bank settings, doubles approval/payment and receipt states. Real Brevo mailbox delivery, Identity sessions and applying the migration to your live Netlify project are deployment checks, not claimed as performed locally.
+
+Team Cup update: see TEAM-CUP-BETA.md for the additive 202610030004_cup_admin_payments.sql migration, editable settings/rosters/draw overrides and captain approval/payment emails. Use the protected Email diagnostics control to see missing environment variables or sender-verification failures; approval/payment state is committed before attempting mail.
